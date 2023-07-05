@@ -34,6 +34,7 @@ function $$SETUP_STATE(hydrateRuntimeState, basePath) {
             ["@types/react", "npm:18.2.14"],\
             ["@types/react-dom", "npm:18.2.6"],\
             ["@vitejs/plugin-react", "virtual:0a6c7822fcf33e958f1fb2f156b15d41932460b467df3f5b8880b9be24907f95ec61815c605fdf32dd6e780b24010fedd344fdb71787338a5c76affe78cf9739#npm:3.1.0"],\
+            ["immutable", "npm:4.3.0"],\
             ["react", "npm:18.2.0"],\
             ["react-dom", "virtual:0a6c7822fcf33e958f1fb2f156b15d41932460b467df3f5b8880b9be24907f95ec61815c605fdf32dd6e780b24010fedd344fdb71787338a5c76affe78cf9739#npm:18.2.0"],\
             ["typescript", "patch:typescript@npm%3A4.9.5#~builtin<compat/typescript>::version=4.9.5&hash=289587"],\
@@ -1527,6 +1528,15 @@ function $$SETUP_STATE(hydrateRuntimeState, basePath) {
           "linkType": "HARD"\
         }]\
       ]],\
+      ["immutable", [\
+        ["npm:4.3.0", {\
+          "packageLocation": "./.yarn/cache/immutable-npm-4.3.0-6120b6947c-bbd7ea99e2.zip/node_modules/immutable/",\
+          "packageDependencies": [\
+            ["immutable", "npm:4.3.0"]\
+          ],\
+          "linkType": "HARD"\
+        }]\
+      ]],\
       ["imurmurhash", [\
         ["npm:0.1.4", {\
           "packageLocation": "./.yarn/cache/imurmurhash-npm-0.1.4-610c5068a0-7cae75c8cd.zip/node_modules/imurmurhash/",\
@@ -2092,6 +2102,7 @@ function $$SETUP_STATE(hydrateRuntimeState, basePath) {
             ["@types/react", "npm:18.2.14"],\
             ["@types/react-dom", "npm:18.2.6"],\
             ["@vitejs/plugin-react", "virtual:0a6c7822fcf33e958f1fb2f156b15d41932460b467df3f5b8880b9be24907f95ec61815c605fdf32dd6e780b24010fedd344fdb71787338a5c76affe78cf9739#npm:3.1.0"],\
+            ["immutable", "npm:4.3.0"],\
             ["react", "npm:18.2.0"],\
             ["react-dom", "virtual:0a6c7822fcf33e958f1fb2f156b15d41932460b467df3f5b8880b9be24907f95ec61815c605fdf32dd6e780b24010fedd344fdb71787338a5c76affe78cf9739#npm:18.2.0"],\
             ["typescript", "patch:typescript@npm%3A4.9.5#~builtin<compat/typescript>::version=4.9.5&hash=289587"],\
