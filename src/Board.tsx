@@ -1,5 +1,5 @@
 import { Map as IMap, Set as ISet, List as IList } from 'immutable';
-import { useState, React } from "react";
+import React, { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./Board.css";
@@ -47,7 +47,11 @@ function squareToCoords(square: string): [number, number] {
 }
 
 function getSvgCoords(e: React.MouseEvent<HTMLElement>) {
-  const ctm = document.getElementById("chess-board-svg").getScreenCTM();
+  const svgElement = document.getElementById("chess-board-svg");
+  if (!svgElement || !(svgElement instanceof SVGGraphicsElement)) {
+    throw new Error(`expected #chess-board-svg to be a SVGGraphicsElement, was ${svgElement && svgElement.constructor && svgElement.constructor.name || svgElement}`)
+  }
+  const ctm = (svgElement as SVGGraphicsElement).getScreenCTM()!;
   const svgX = (e.clientX - ctm.e) / ctm.a;
   const svgY = (e.clientY - ctm.f) / ctm.a;
   return [svgX, svgY];
@@ -254,7 +258,7 @@ function drawArrow(sourceSquare: string, destSquare: string) {
 }
 
 function drawArrows(arrows: ISet<IList<string>>) {
-  return arrows.map(([sourceSquare, destSquare]) => drawArrow(sourceSquare, destSquare));
+  return arrows.map(([sourceSquare, destSquare]: IList<string>) => drawArrow(sourceSquare, destSquare));
 }
 
 function drawPiece(piece: string, square: string, [x, y]: [number, number]) {
@@ -264,7 +268,7 @@ function drawPiece(piece: string, square: string, [x, y]: [number, number]) {
 }
 
 function drawPieces(pieces: ISet<IList<string>>, dragState: IMap<string>) {
-  return pieces.map(([piece, square]) => {
+  return pieces.map(([piece, square]: IList<string>) => {
     if (square == dragState.getIn(["piece", 1])) {
       return drawPiece(piece, square, dragState.get("coords"));
     } else {
@@ -284,26 +288,29 @@ function drawMoveHints(moveHints: string[]) {
   }
 }
 
-function makeMove(boardState: IMap<string>, setBoardState, oldSquare: string, newSquare: string) {
+function makeMove(boardState: IMap<string>, oldSquare: string, newSquare: string, clickMove: boolean): IMap<string> {
   if (boardState.getIn(["validMoves", oldSquare]) && boardState.getIn(["validMoves", oldSquare]).includes(newSquare)) {
-    setBoardState(boardState
+    return boardState
       .set("dragState", new IMap<string>())
       .update("pieces", (x: ISet<IList<string>>) => x.map((y: IList<string>) => y[1] == oldSquare ? [y[0], newSquare] : y))
       .delete("selectedPiece")
       .delete("moveHints")
       .set("lastMove", [oldSquare, newSquare])
       .set("validMoves", new IMap<string, string[]>()) // FIXME: Need to interface with the actual chess engine to get the new valid moves
-    );
   } else {
-    setBoardState(boardState
-      .set("dragState", new IMap<string>())
-      .delete("selectedPiece") // FIXME: (DEVON) we only want to do this if it was a click move not a drag move.
-      .delete("moveHints")
-    );
+    let newBoardState = boardState
+      .set("dragState", new IMap<string>());
+    if (clickMove) {
+      newBoardState = newBoardState.delete("selectedPiece").delete("moveHints");
+    }
+
+    newBoardState.set("moveHints", newBoardState.getIn(["validMoves", newBoardState.getIn(["selectedPiece", 1])]));
+
+    return newBoardState
   }
 }
 
-function handleDrag(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, setBoardState) {
+function handleDrag(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>): IMap<string> {
   const target = e.target;
   const pieceX = parseFloat(target.getAttributeNS("", "x"));
   const pieceY = parseFloat(target.getAttributeNS("", "y"));
@@ -314,25 +321,27 @@ function handleDrag(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, 
 
   const dragPiece = boardState.get("pieces").filter((x: IList<string>) => x[1] == square).first();
 
-  setBoardState(boardState
+  return boardState
     .setIn(["dragState", "piece"], dragPiece)
     .setIn(["dragState", "coords"], [pieceX, pieceY])
     .setIn(["dragState", "offset"], [offsetX, offsetY])
-    .set("moveHints", boardState.getIn(["validMoves", square]))
-  );
+    .set("selectedPiece", dragPiece)
+    .set("moveHints", boardState.getIn(["validMoves", square]));
 }
 
-function handleMakeMove(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, setBoardState) {
+function handleMakeMove(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>): IMap<string> {
   if (boardState.has("selectedPiece")) {
     const oldSquare = boardState.getIn(["selectedPiece", 1]);
     const newSquare = getSquare(e);
-    makeMove(boardState, setBoardState, oldSquare, newSquare);
+    return makeMove(boardState, oldSquare, newSquare, true);
   }
+
+  return boardState
 }
 
-function handleHighlight(e: React.MouseEvent<HTMLElement>, square: string, boardState: IMap<string>, setBoardState) {
+function handleHighlight(e: React.MouseEvent<HTMLElement>, square: string, boardState: IMap<string>): IMap<string> {
   if (boardState.get("squareClasses").has(square)) {
-    setBoardState(boardState.update("squareClasses", (x: IMap<string, string>) => x.delete(square)));
+    return boardState.update("squareClasses", (x: IMap<string, string>) => x.delete(square));
   } else {
     let highlightClass = "";
     if (!(e.altKey || e.ctrlKey || e.shiftKey)) {
@@ -345,72 +354,87 @@ function handleHighlight(e: React.MouseEvent<HTMLElement>, square: string, board
       highlightClass = "highlight-3";
     }
 
-    setBoardState(boardState.setIn(["squareClasses", square], highlightClass))
+    return boardState.setIn(["squareClasses", square], highlightClass);
   }
 }
 
-function handleArrows(downSquare: string, upSquare: string, boardState: IMap<string>, setBoardState) {
+function handleArrows(downSquare: string, upSquare: string, boardState: IMap<string>): IMap<string> {
   const arrow: IList<string> = new IList<string>([downSquare, upSquare]);
   if (boardState.get("arrows").has(arrow)) {
-    setBoardState(boardState.update("arrows", (x: ISet<IList<string>>) => x.delete(arrow)))
+    return boardState.update("arrows", (x: ISet<IList<string>>) => x.delete(arrow));
   } else {
-    setBoardState(boardState.update("arrows", (x: ISet<IList<string>>) => x.add(arrow)))
+    return boardState.update("arrows", (x: ISet<IList<string>>) => x.add(arrow));
   }
 }
 
-function handleMouseDown(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, boardState: IMap<string>, setBoardState) {
+function handleMouseDown(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, boardState: IMap<string>): IMap<String> {
   if (e.button == 0) { // Left Click
-    setBoardState(boardState
+    let newBoardState = boardState
       .set("arrows", new ISet<IList<string>>())
-      .set("squareClasses", new IMap<string, string>()));
+      .set("squareClasses", new IMap<string, string>());
 
     if (e.target.attributes.draggable) {
-      handleDrag(e, boardState, setBoardState);
+      newBoardState = handleDrag(e, newBoardState);
     } else {
-      handleMakeMove(e, boardState, setBoardState);
+      newBoardState = handleMakeMove(e, newBoardState);
     }
 
     e.preventDefault();
+    return newBoardState;
   } else if (e.button == 2) { // Right Click
     clickState.set("right-mouse-down-square", getSquare(e));
   }
+
+  return boardState;
 }
 
-function handleMouseMove(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, setBoardState) {
+function handleMouseMove(e: React.MouseEvent<HTMLElement>, _: Map<string, string>, boardState: IMap<string>): IMap<string> {
   if (boardState.hasIn(["dragState", "piece"])) {
     const [coordX, coordY] = getSvgCoords(e);
     const [offsetX, offsetY] = boardState.getIn(["dragState", "offset"]);
     const newX = coordX - offsetX;
     const newY = coordY - offsetY;
-    setBoardState(boardState.setIn(["dragState", "coords"], [newX, newY]));
+    return boardState.setIn(["dragState", "coords"], [newX, newY]);
   }
+
+  return boardState;
 }
 
-function handleMouseUp(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, boardState: IMap<string>, setBoardState) {
-  if (e.button == 0 && boardState.hasIn(["dragState", "piece"])) { // Left Click
-    const dragPiece = boardState.getIn(["dragState", "piece"]);
+function handleMouseUp(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, boardState: IMap<string>): IMap<string> {
+  let newBoardState = boardState;
+
+  if (e.button == 0 && newBoardState.hasIn(["dragState", "piece"])) { // Left Click
+    const dragPiece = newBoardState.getIn(["dragState", "piece"]);
     const oldSquare = dragPiece[1];
     const newSquare = getSquare(e);
     if (oldSquare == newSquare) {
-      setBoardState(boardState
+      newBoardState = newBoardState
         .set("dragState", new IMap<string>())
-        .set("selectedPiece", dragPiece)
-        .set("moveHints", boardState.getIn(["validMoves", oldSquare]))
-      );
+        .set("moveHints", newBoardState.getIn(["validMoves", oldSquare]));
     } else {
-      makeMove(boardState, setBoardState, oldSquare, newSquare);
+      newBoardState = makeMove(newBoardState, oldSquare, newSquare, false);
     }
   } else if (e.button == 2) { // Right Click
     e.preventDefault();
-    const downSquare: string = clickState.get("right-mouse-down-square"); // FIXME: handle undefined.
-    const upSquare: string = getSquare(e);
-    if (downSquare == upSquare) {
-      handleHighlight(e, upSquare, boardState, setBoardState);
-    } else {
-      handleArrows(downSquare, upSquare, boardState, setBoardState);
+
+    if (clickState.has("right-mouse-down-square")) {
+      const downSquare: string = clickState.get("right-mouse-down-square")!;
+      const upSquare: string = getSquare(e);
+      if (downSquare == upSquare) {
+        newBoardState = handleHighlight(e, upSquare, newBoardState);
+      } else {
+        newBoardState = handleArrows(downSquare, upSquare, newBoardState);
+      }
+      clickState.delete("right-mouse-down-square");
     }
-    clickState.delete("right-mouse-down-square");
   }
+
+  return newBoardState;
+}
+
+function handleMouseEvent(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, boardState: IMap<string>, setBoardState: Function, f: Function) {
+  const newBoardState = f(e, clickState, boardState);
+  setBoardState(newBoardState);
 }
 
 function makeDefaultBoardState() {
@@ -456,9 +480,9 @@ function Board() {
         width="800"
         height="800"
         viewBox="0 0 800 800"
-        onMouseDown={(e: React.MouseEvent<HTMLElement>) => handleMouseDown(e, clickState, boardState, setBoardState)}
-        onMouseMove={(e: React.MouseEvent<HTMLElement>) => handleMouseMove(e, boardState, setBoardState)}
-        onMouseUp={(e: React.MouseEvent<HTMLElement>) => handleMouseUp(e, clickState, boardState, setBoardState)}
+        onMouseDown={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, boardState, setBoardState, handleMouseDown)}
+        onMouseMove={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, boardState, setBoardState, handleMouseMove)}
+        onMouseUp={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, boardState, setBoardState, handleMouseUp)}
         onContextMenu={(e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); }}
       >
         {drawBoardSquares(boardState)}
