@@ -22,40 +22,23 @@ mod perft;
 fn main() {
     lookup_tables::init_lookup_tables();
 
-    // print_knight_moves(bitboard::Square::A1);
-    // print_knight_moves(bitboard::Square::H1);
-    // print_knight_moves(bitboard::Square::A8);
-    // print_knight_moves(bitboard::Square::H8);
-    // print_knight_moves(bitboard::Square::E4);
+    print_king_moves(bitboard::Square::A1);
+    print_king_moves(bitboard::Square::H1);
+    print_king_moves(bitboard::Square::A8);
+    print_king_moves(bitboard::Square::H8);
+    print_king_moves(bitboard::Square::E4);
 
-    // let mut x = bitboard::BitBoard::new();
-    // x.set_bit(bitboard::Square::B8);
-    // x.set_bit(bitboard::Square::B1);
-    // x.print();
-    //
-    // let junk: u8 = 10;
-    // println!("{junk:#010b}, leading: {}", junk.leading_zeros());
-    //
-    // println!("{:?}", x.get_lsb());
-    // println!("{:?}", x.get_msb());
-    //
-    // let b = board::Board::new();
-    //
-    // let n = perft::perft(&b, 1);
-    // println!("{}", n)
     let b = board::Board::start_pos();
     let moves = b.generate_moves();
     println!("{:?}", moves);
 }
 
-fn print_knight_moves(s: bitboard::Square) {
-    println!("{s:?} Knight bitboard:");
+fn print_king_moves(s: bitboard::Square) {
     let mut bb = bitboard::BitBoard::new();
     bb.set_bit(s);
-    bb.print();
 
-    println!("{s:?} Knight moves:");
-    let moves = lookup_tables::knight_moves(s);
+    println!("{s:?} King moves:");
+    let moves = lookup_tables::king_moves(s);
     moves.print();
     println!("-------------------------------------------");
 }

@@ -41,7 +41,6 @@ mod tests {
         init_lookup_tables();
 
         let b: Board = board::Board::start_pos();
-        b.print_bbs();
         assert_eq!(1, perft(&b, 0));
         assert_eq!(20, perft(&b, 1));
         assert_eq!(400, perft(&b, 2));

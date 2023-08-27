@@ -182,6 +182,8 @@ impl Board {
         let pk = PieceKind::from(p);
         match pk {
             PieceKind::Knight => self.generate_knight_moves(p, moves),
+            PieceKind::Pawn => self.generate_pawn_moves(p, moves),
+            PieceKind::King => self.generate_king_moves(p, moves),
             _ => (), // noop
         }
     }
@@ -190,6 +192,38 @@ impl Board {
         let mut piece_bb = self.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
             let move_bb = lookup_tables::knight_moves(from);
+            let occ = self.occ_bbs[self.turn as usize];
+            let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!occ.0));
+            while let Some(to) = valid_moves_bb.pop_lsb() {
+                moves.push(Move(from, to));
+            }
+        }
+    }
+
+    fn generate_pawn_moves(&self, p: Piece, moves: &mut Vec<Move>) {
+        let mut piece_bb = self.piece_bbs[p as usize];
+        while let Some(from) = piece_bb.pop_lsb() {
+            let is_white = self.turn == Player::White;
+            let move_bb = lookup_tables::pawn_moves(from, is_white);
+            let all_occ = self.occ_bbs[2];
+            let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!all_occ.0));
+            while let Some(to) = valid_moves_bb.pop_lsb() {
+                moves.push(Move(from, to));
+            }
+
+            let capture_move_bb = lookup_tables::pawn_capture_moves(from, is_white);
+            let enemy_occ = self.occ_bbs[if is_white { 1 } else { 0 }];
+            let mut valid_capture_moves_bb = bitboard::BitBoard(capture_move_bb.0 & enemy_occ.0);
+            while let Some(to) = valid_capture_moves_bb.pop_lsb() {
+                moves.push(Move(from, to));
+            }
+        }
+    }
+
+    fn generate_king_moves(&self, p: Piece, moves: &mut Vec<Move>) {
+        let mut piece_bb = self.piece_bbs[p as usize];
+        while let Some(from) = piece_bb.pop_lsb() {
+            let move_bb = lookup_tables::king_moves(from);
             let occ = self.occ_bbs[self.turn as usize];
             let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!occ.0));
             while let Some(to) = valid_moves_bb.pop_lsb() {
