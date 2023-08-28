@@ -1,17 +1,26 @@
-use crate::board;
+use crate::{bitboard, board};
 
 // TODO: version with nice printing like stockfish does
+//
+pub fn perft_pp(b: &board::Board, depth: u8) -> u64 {
+    if depth == 0 {
+        return 1;
+    } else {
+        let mut b2 = b.shallow_clone();
+        inner_perft(&mut b2, depth, true)
+    }
+}
 
 pub fn perft(b: &board::Board, depth: u8) -> u64 {
     if depth == 0 {
         return 1;
     } else {
         let mut b2 = b.shallow_clone();
-        inner_perft(&mut b2, depth)
+        inner_perft(&mut b2, depth, false)
     }
 }
 
-fn inner_perft(b: &mut board::Board, depth: u8) -> u64 {
+fn inner_perft(b: &mut board::Board, depth: u8, print_results: bool) -> u64 {
     let moves = b.generate_moves();
 
     if depth == 1 {
@@ -22,8 +31,14 @@ fn inner_perft(b: &mut board::Board, depth: u8) -> u64 {
 
     for m in moves {
         b.apply_move(m);
-        count += inner_perft(b, depth - 1);
+        let count_for_move = inner_perft(b, depth - 1, false);
         b.undo_move();
+
+        if print_results {
+            println!("{:?}{:?}: {}", m.0, m.1, count_for_move);
+        }
+
+        count += count_for_move;
     }
 
     count

@@ -23,6 +23,11 @@ impl BitBoard {
     }
 
     #[inline(always)]
+    pub fn unset_bit(&mut self, s: Square) {
+        self.0 = self.0 & !(1 << s as u8)
+    }
+
+    #[inline(always)]
     pub fn pop_lsb(&mut self) -> Option<Square> {
         if self.is_empty() {
             None

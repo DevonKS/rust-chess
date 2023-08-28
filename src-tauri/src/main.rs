@@ -22,23 +22,14 @@ mod perft;
 fn main() {
     lookup_tables::init_lookup_tables();
 
-    print_king_moves(bitboard::Square::A1);
-    print_king_moves(bitboard::Square::H1);
-    print_king_moves(bitboard::Square::A8);
-    print_king_moves(bitboard::Square::H8);
-    print_king_moves(bitboard::Square::E4);
+    let mut b = board::Board::start_pos();
+    // b.apply_move(board::Move(bitboard::Square::A2, bitboard::Square::A3));
+    // b.apply_move(board::Move(bitboard::Square::H7, bitboard::Square::H6));
+    //
+    // b.print_bbs();
+    //
+    // let moves = b.generate_moves();
+    // println!("{:?}", moves);
 
-    let b = board::Board::start_pos();
-    let moves = b.generate_moves();
-    println!("{:?}", moves);
-}
-
-fn print_king_moves(s: bitboard::Square) {
-    let mut bb = bitboard::BitBoard::new();
-    bb.set_bit(s);
-
-    println!("{s:?} King moves:");
-    let moves = lookup_tables::king_moves(s);
-    moves.print();
-    println!("-------------------------------------------");
+    perft::perft_pp(&b, 3);
 }
