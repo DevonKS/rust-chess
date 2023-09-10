@@ -23,18 +23,26 @@ mod perft;
 fn main() {
     let l = lookup_tables::LookupTables::new();
 
-    l.lookup_moves_mask(core::Piece::WhiteRook, core::Square::E4)
-        .print();
-
+    // let mut blockers_bitboard = bitboard::BitBoard::new();
+    // blockers_bitboard.set_bit(core::Square::A3);
+    // blockers_bitboard.set_bit(core::Square::B1);
+    //
+    // l.lookup_moves(
+    //     core::Piece::WhiteRook,
+    //     core::Square::A1,
+    //     blockers_bitboard.0,
+    // )
+    // .print();
+    //
     // let mut b = board::Board::start_pos(&l);
-    // b.apply_move(core::Move(core::Square::B1, core::Square::A3));
+    // b.apply_move(core::Move(core::Square::A2, core::Square::A3));
     // b.apply_move(core::Move(core::Square::H7, core::Square::H6));
-    //
-    // b.print_bbs();
-    //
+
+    //b.print_bbs();
+
     // let moves = b.generate_moves();
     // println!("{}: {:?}", moves.len(), moves);
 
-    // let b2 = board::Board::start_pos(&l);
-    // perft::perft_pp(&b2, 3);
+    let b2 = board::Board::start_pos(&l);
+    perft::perft_pp(&b2, 3);
 }

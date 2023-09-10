@@ -163,7 +163,9 @@ impl<'a> Board<'a> {
     fn generate_piece_moves(&self, p: Piece, moves: &mut Vec<Move>) {
         let pk = PieceKind::from(p);
         match pk {
-            PieceKind::Knight | PieceKind::King => self.generate_piece_moves_inner(p, moves),
+            PieceKind::Knight | PieceKind::King | PieceKind::Rook => {
+                self.generate_piece_moves_inner(p, moves)
+            }
             PieceKind::Pawn => self.generate_pawn_moves(p, moves),
             _ => (), // noop
         }
@@ -173,7 +175,9 @@ impl<'a> Board<'a> {
     fn generate_piece_moves_inner(&self, p: Piece, moves: &mut Vec<Move>) {
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
-            let move_bb = self.lookup_tables.lookup_moves(p, from);
+            let move_bb = self
+                .lookup_tables
+                .lookup_moves(p, from, self.state.occ_bbs[2].0);
             let occ = self.state.occ_bbs[self.state.turn as usize];
             let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!occ.0));
             while let Some(to) = valid_moves_bb.pop_lsb() {
@@ -186,7 +190,9 @@ impl<'a> Board<'a> {
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
             let is_white = self.state.turn == Player::White;
-            let move_bb = self.lookup_tables.lookup_moves(p, from);
+            let move_bb = self
+                .lookup_tables
+                .lookup_moves(p, from, self.state.occ_bbs[2].0);
             let all_occ = self.state.occ_bbs[2];
             let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!all_occ.0));
             while let Some(to) = valid_moves_bb.pop_lsb() {

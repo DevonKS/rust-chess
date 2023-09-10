@@ -1,8 +1,12 @@
+use std::os::raw;
+
 use crate::bitboard;
 use crate::core;
 use crate::core::{
     File, Piece, PieceKind, Rank, Square, NOT_AB_FILE, NOT_A_FILE, NOT_GH_FILE, NOT_H_FILE,
 };
+
+use rustc_hash::FxHashMap;
 
 pub struct LookupTables {
     knight_moves_table: [bitboard::BitBoard; 64],
@@ -10,6 +14,7 @@ pub struct LookupTables {
     pawn_moves_table: [[bitboard::BitBoard; 64]; 2],
     king_moves_table: [bitboard::BitBoard; 64],
     rook_moves_mask: [bitboard::BitBoard; 64],
+    rook_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
 }
 
 impl std::fmt::Debug for LookupTables {
@@ -21,18 +26,37 @@ impl std::fmt::Debug for LookupTables {
 impl LookupTables {
     // FIXME: Is it bad practice for new to do heavy lifting?
     pub fn new() -> Self {
+        let rook_moves_mask = gen_rook_moves_mask();
         Self {
             knight_moves_table: gen_knight_moves(),
             pawn_moves_table: gen_pawn_moves(),
             pawn_captures_table: gen_pawn_capture_moves(),
             king_moves_table: gen_king_moves(),
-            rook_moves_mask: gen_rook_moves_mask(),
+            rook_moves_mask,
+            rook_moves_table: gen_rook_moves(&rook_moves_mask),
         }
     }
 
-    pub fn lookup_moves(&self, p: Piece, s: Square) -> bitboard::BitBoard {
+    pub fn lookup_moves(&self, p: Piece, s: Square, all_occupancy: u64) -> bitboard::BitBoard {
         match PieceKind::from(p) {
-            PieceKind::Rook => bitboard::BitBoard::new(),
+            PieceKind::Rook => {
+                let mut blockers_key = all_occupancy & self.rook_moves_mask[s as usize].0;
+                let file = File::from(s);
+                let rank = Rank::from(s);
+                if file != File::A {
+                    blockers_key &= core::NOT_A_FILE;
+                }
+                if file != File::H {
+                    blockers_key &= core::NOT_H_FILE;
+                }
+                if rank != Rank::R1 {
+                    blockers_key &= !core::RANK_1;
+                }
+                if rank != Rank::R8 {
+                    blockers_key &= !core::RANK_8;
+                }
+                self.rook_moves_table[&(s as u8, blockers_key)]
+            }
             PieceKind::Knight => self.knight_moves_table[s as usize],
             PieceKind::Bishop => bitboard::BitBoard::new(),
             PieceKind::Queen => bitboard::BitBoard::new(),
@@ -161,4 +185,114 @@ fn gen_king_move(s: u64) -> bitboard::BitBoard {
     moves |= (bb >> 1) & NOT_H_FILE;
 
     bitboard::BitBoard(moves)
+}
+
+fn gen_rook_moves_mask() -> [bitboard::BitBoard; 64] {
+    let mut moves = [bitboard::BitBoard::new(); 64];
+    for s in 0..64 {
+        moves[s] = gen_rook_move_mask(s as u8);
+    }
+    moves
+}
+
+fn gen_rook_move_mask(s: u8) -> bitboard::BitBoard {
+    let square = Square::try_from(s).unwrap();
+    let file = File::from(square);
+    let file_mask = match file {
+        File::A => core::FILE_A,
+        File::B => core::FILE_B,
+        File::C => core::FILE_C,
+        File::D => core::FILE_D,
+        File::E => core::FILE_E,
+        File::F => core::FILE_F,
+        File::G => core::FILE_G,
+        File::H => core::FILE_H,
+    };
+    let rank = Rank::from(square);
+    let rank_mask = match rank {
+        Rank::R1 => core::RANK_1,
+        Rank::R2 => core::RANK_2,
+        Rank::R3 => core::RANK_3,
+        Rank::R4 => core::RANK_4,
+        Rank::R5 => core::RANK_5,
+        Rank::R6 => core::RANK_6,
+        Rank::R7 => core::RANK_7,
+        Rank::R8 => core::RANK_8,
+    };
+    let mut mask = (file_mask | rank_mask) & !(1 << s);
+    if file != File::A {
+        mask = mask & !core::FILE_A;
+    }
+    if file != File::H {
+        mask = mask & !core::FILE_H;
+    }
+    if rank != Rank::R1 {
+        mask = mask & !core::RANK_1
+    }
+    if rank != Rank::R8 {
+        mask = mask & !core::RANK_8
+    }
+    bitboard::BitBoard(mask)
+}
+
+fn gen_rook_moves(
+    move_masks: &[bitboard::BitBoard; 64],
+) -> FxHashMap<(u8, u64), bitboard::BitBoard> {
+    let mut moves = FxHashMap::default();
+    for s in 0..64 {
+        let mask = move_masks[s];
+        let total_blocker_combs = 2_u64.pow(mask.0.count_ones());
+        for raw_blocker in 0..total_blocker_combs {
+            let raw_blocker_bitboard = bitboard::BitBoard(raw_blocker);
+            let mut blocker_bitboard = bitboard::BitBoard::new();
+            let mut blocker_index = 0;
+            let mut blocker_mask = mask.clone();
+            while let Some(mask_index) = blocker_mask.pop_lsb() {
+                let blocker_set =
+                    raw_blocker_bitboard.get_bit(Square::try_from(blocker_index).unwrap());
+                if blocker_set {
+                    blocker_bitboard.set_bit(mask_index);
+                } else {
+                    blocker_bitboard.unset_bit(mask_index);
+                }
+                blocker_index += 1
+            }
+            moves.insert(
+                (s as u8, blocker_bitboard.0),
+                gen_rook_move(s as u8, blocker_bitboard.0),
+            );
+        }
+    }
+    moves
+}
+
+fn gen_rook_move(s: u8, blockers: u64) -> bitboard::BitBoard {
+    let directions = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+
+    let square = Square::try_from(s).unwrap();
+    let mut moves_bitboard = bitboard::BitBoard::new();
+    let blockers_bitboard = bitboard::BitBoard(blockers);
+    for dir in directions {
+        let mut current_rank: i8 = (Rank::from(square) as i8) + 1;
+        let mut current_file: i8 = (File::from(square) as i8) + 1;
+        for i in 1..8 {
+            current_rank = current_rank + dir.1;
+            current_file = current_file + dir.0;
+
+            if current_rank > 8 || current_rank < 1 || current_file > 8 || current_file < 1 {
+                break;
+            }
+
+            let bit_index =
+                Square::try_from(((current_file - 1) + (current_rank - 1) * 8) as u8).unwrap();
+
+            moves_bitboard.set_bit(bit_index);
+
+            if blockers_bitboard.get_bit(bit_index) {
+                break;
+            }
+        }
+    }
+
+    moves_bitboard
 }
