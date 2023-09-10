@@ -3,6 +3,7 @@
 
 mod bitboard;
 mod board;
+mod core;
 mod lookup_tables;
 mod perft;
 
@@ -20,16 +21,20 @@ mod perft;
 // }
 
 fn main() {
-    lookup_tables::init_lookup_tables();
+    let l = lookup_tables::LookupTables::new();
 
-    let mut b = board::Board::start_pos();
-    // b.apply_move(board::Move(bitboard::Square::A2, bitboard::Square::A3));
-    // b.apply_move(board::Move(bitboard::Square::H7, bitboard::Square::H6));
+    l.lookup_moves_mask(core::Piece::WhiteRook, core::Square::E4)
+        .print();
+
+    // let mut b = board::Board::start_pos(&l);
+    // b.apply_move(core::Move(core::Square::B1, core::Square::A3));
+    // b.apply_move(core::Move(core::Square::H7, core::Square::H6));
     //
     // b.print_bbs();
     //
     // let moves = b.generate_moves();
-    // println!("{:?}", moves);
+    // println!("{}: {:?}", moves.len(), moves);
 
-    perft::perft_pp(&b, 3);
+    // let b2 = board::Board::start_pos(&l);
+    // perft::perft_pp(&b2, 3);
 }

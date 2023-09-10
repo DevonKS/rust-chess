@@ -1,4 +1,4 @@
-use crate::{bitboard, board};
+use crate::board;
 
 // TODO: version with nice printing like stockfish does
 //
@@ -48,14 +48,13 @@ fn inner_perft(b: &mut board::Board, depth: u8, print_results: bool) -> u64 {
 mod tests {
     use super::*;
     use crate::board::Board;
-    use crate::lookup_tables::init_lookup_tables;
+    use crate::lookup_tables::LookupTables;
 
     #[test]
     fn start_pos_perft() {
-        // FIXME: How do I do this test setup?
-        init_lookup_tables();
+        let l = LookupTables::new();
 
-        let b: Board = board::Board::start_pos();
+        let b: Board = board::Board::start_pos(&l);
         assert_eq!(1, perft(&b, 0));
         assert_eq!(20, perft(&b, 1));
         assert_eq!(400, perft(&b, 2));
