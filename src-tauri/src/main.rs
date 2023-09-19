@@ -35,7 +35,7 @@ fn main() {
     // .print();
     //
     // let mut b = board::Board::start_pos(&l);
-    // b.apply_move(core::Move(core::Square::A2, core::Square::A3));
+    // b.apply_move(core::Move(core::Square::E2, core::Square::E4));
     // b.apply_move(core::Move(core::Square::H7, core::Square::H6));
 
     //b.print_bbs();

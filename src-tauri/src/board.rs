@@ -163,11 +163,12 @@ impl<'a> Board<'a> {
     fn generate_piece_moves(&self, p: Piece, moves: &mut Vec<Move>) {
         let pk = PieceKind::from(p);
         match pk {
-            PieceKind::Knight | PieceKind::King | PieceKind::Rook => {
-                self.generate_piece_moves_inner(p, moves)
-            }
+            PieceKind::Knight
+            | PieceKind::King
+            | PieceKind::Rook
+            | PieceKind::Bishop
+            | PieceKind::Queen => self.generate_piece_moves_inner(p, moves),
             PieceKind::Pawn => self.generate_pawn_moves(p, moves),
-            _ => (), // noop
         }
     }
 
