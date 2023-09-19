@@ -1,11 +1,11 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod bitboard;
-mod board;
-mod core;
-mod lookup_tables;
-mod perft;
+// use rust_chess::bitboard;
+use rust_chess::board;
+// use rust_chess::core;
+use rust_chess::lookup_tables;
+use rust_chess::perft;
 
 // // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 // #[tauri::command]

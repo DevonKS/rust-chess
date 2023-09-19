@@ -7,7 +7,9 @@ pub fn perft_pp(b: &board::Board, depth: u8) -> u64 {
         return 1;
     } else {
         let mut b2 = b.shallow_clone();
-        inner_perft(&mut b2, depth, true)
+        let n = inner_perft(&mut b2, depth, true);
+        println!("{n}");
+        n
     }
 }
 
