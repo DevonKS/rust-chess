@@ -1,6 +1,6 @@
 use crate::core::Square;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(transparent)]
 pub struct BitBoard(pub u64);
 
