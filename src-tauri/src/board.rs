@@ -70,7 +70,7 @@ impl<'a> Board<'a> {
             .get(1)
             .ok_or("expected piece placement")?
             .as_str()
-            .split("/")
+            .split('/')
         {
             for c in row.chars() {
                 match c {
@@ -237,7 +237,7 @@ impl<'a> Board<'a> {
         fen_string.push(' ');
         fen_string.push_str(self.state.full_moves.to_string().as_str());
 
-        return fen_string;
+        fen_string
     }
 
     // FIXME: I should use from_fen to set this up.
@@ -327,7 +327,7 @@ impl<'a> Board<'a> {
                 return unsafe { Some(std::mem::transmute::<u8, Piece>(i as u8)) };
             }
         }
-        return None;
+        None
     }
 
     fn generate_piece_moves(&self, p: Piece, moves: &mut Vec<Move>) {
@@ -374,22 +374,22 @@ impl<'a> Board<'a> {
             let player = Player::from(p);
             match player {
                 Player::White => {
-                    if square_index >= 8 && square_index <= 15 {
+                    if (8..=15).contains(&square_index) {
                         let check_index = square_index + 8;
                         let move_index = square_index + 16;
                         let check_bb = 1 << check_index;
                         if all_occ.0 & check_bb == 0 {
-                            moves.push(Move(from, Square::try_from(move_index as u8).unwrap()))
+                            moves.push(Move(from, Square::try_from(move_index).unwrap()))
                         }
                     }
                 }
                 Player::Black => {
-                    if square_index >= 48 && square_index <= 55 {
+                    if (48..=55).contains(&square_index) {
                         let check_index = square_index - 8;
                         let move_index = square_index - 16;
                         let check_bb = 1 << check_index;
                         if all_occ.0 & check_bb == 0 {
-                            moves.push(Move(from, Square::try_from(move_index as u8).unwrap()))
+                            moves.push(Move(from, Square::try_from(move_index).unwrap()))
                         }
                     }
                 }
@@ -456,7 +456,7 @@ mod tests {
             fen: &'static str,
             expected_state: BoardState,
         }
-        let l = LookupTables::new();
+        let l = LookupTables::generate();
 
         let test_cases = vec![
             TestCase {
@@ -659,7 +659,7 @@ mod tests {
             state: BoardState,
             expected_fen: &'static str,
         }
-        let l = LookupTables::new();
+        let l = LookupTables::generate();
 
         let test_cases = vec![
             TestCase {

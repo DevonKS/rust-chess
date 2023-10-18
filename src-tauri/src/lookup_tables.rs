@@ -25,7 +25,7 @@ impl std::fmt::Debug for LookupTables {
 
 impl LookupTables {
     // FIXME: Is it bad practice for new to do heavy lifting?
-    pub fn new() -> Self {
+    pub fn generate() -> Self {
         let rook_moves_mask = gen_sliding_moves_mask(true);
         let bishop_moves_mask = gen_sliding_moves_mask(false);
         Self {
@@ -84,8 +84,8 @@ impl LookupTables {
 
 fn gen_knight_moves() -> [bitboard::BitBoard; 64] {
     let mut moves = [bitboard::BitBoard::new(); 64];
-    for s in 0..64 {
-        moves[s] = gen_knight_move(s as u64);
+    for (s, m) in moves.iter_mut().enumerate() {
+        *m = gen_knight_move(s as u64);
     }
     moves
 }
@@ -164,8 +164,8 @@ fn gen_pawn_capture_move(s: u64, is_white: bool) -> bitboard::BitBoard {
 
 fn gen_king_moves() -> [bitboard::BitBoard; 64] {
     let mut moves = [bitboard::BitBoard::new(); 64];
-    for s in 0..64 {
-        moves[s] = gen_king_move(s as u64);
+    for (s, m) in moves.iter_mut().enumerate() {
+        *m = gen_king_move(s as u64);
     }
     moves
 }
@@ -190,14 +190,13 @@ fn gen_sliding_moves(
     is_rook: bool,
 ) -> FxHashMap<(u8, u64), bitboard::BitBoard> {
     let mut moves = FxHashMap::default();
-    for s in 0..64 {
-        let mask = move_masks[s];
+    for (s, mask) in move_masks.iter().enumerate() {
         let total_blocker_combs = 2_u64.pow(mask.0.count_ones());
         for raw_blocker in 0..total_blocker_combs {
             let raw_blocker_bitboard = bitboard::BitBoard(raw_blocker);
             let mut blocker_bitboard = bitboard::BitBoard::new();
             let mut blocker_index = 0;
-            let mut blocker_mask = mask.clone();
+            let mut blocker_mask = *mask;
             while let Some(mask_index) = blocker_mask.pop_lsb() {
                 let blocker_set =
                     raw_blocker_bitboard.get_bit(Square::try_from(blocker_index).unwrap());
@@ -231,10 +230,10 @@ fn gen_sliding_move(s: u8, blockers: u64, is_rook: bool) -> bitboard::BitBoard {
         let mut current_rank: i8 = (Rank::from(square) as i8) + 1;
         let mut current_file: i8 = (File::from(square) as i8) + 1;
         for _ in 1..8 {
-            current_rank = current_rank + dir.1;
-            current_file = current_file + dir.0;
+            current_rank += dir.1;
+            current_file += dir.0;
 
-            if current_rank > 8 || current_rank < 1 || current_file > 8 || current_file < 1 {
+            if !(1..=8).contains(&current_rank) || !(1..=8).contains(&current_file) {
                 break;
             }
 
@@ -254,8 +253,8 @@ fn gen_sliding_move(s: u8, blockers: u64, is_rook: bool) -> bitboard::BitBoard {
 
 fn gen_sliding_moves_mask(is_rook: bool) -> [bitboard::BitBoard; 64] {
     let mut moves = [bitboard::BitBoard::new(); 64];
-    for s in 0..64 {
-        moves[s] = gen_sliding_move_mask(s as u8, is_rook);
+    for (s, m) in moves.iter_mut().enumerate() {
+        *m = gen_sliding_move_mask(s as u8, is_rook);
     }
     moves
 }
@@ -274,10 +273,10 @@ fn gen_sliding_move_mask(s: u8, is_rook: bool) -> bitboard::BitBoard {
         let mut current_rank: i8 = (Rank::from(square) as i8) + 1;
         let mut current_file: i8 = (File::from(square) as i8) + 1;
         for _ in 1..8 {
-            current_rank = current_rank + dir.1;
-            current_file = current_file + dir.0;
+            current_rank += dir.1;
+            current_file += dir.0;
 
-            if current_rank > 8 || current_rank < 1 || current_file > 8 || current_file < 1 {
+            if !(1..=8).contains(&current_rank) || !(1..=8).contains(&current_file) {
                 break;
             }
 

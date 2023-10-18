@@ -4,7 +4,7 @@ use crate::board;
 //
 pub fn perft_pp(b: &board::Board, depth: u8) -> u64 {
     if depth == 0 {
-        return 1;
+        1
     } else {
         let mut b2 = b.shallow_clone();
         let n = inner_perft(&mut b2, depth, true);
@@ -15,7 +15,7 @@ pub fn perft_pp(b: &board::Board, depth: u8) -> u64 {
 
 pub fn perft(b: &board::Board, depth: u8) -> u64 {
     if depth == 0 {
-        return 1;
+        1
     } else {
         let mut b2 = b.shallow_clone();
         inner_perft(&mut b2, depth, false)
@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn start_pos_perft() {
-        let l = LookupTables::new();
+        let l = LookupTables::generate();
 
         let b: Board = board::Board::start_pos(&l);
         assert_eq!(1, perft(&b, 0));

@@ -4,6 +4,12 @@ use crate::core::Square;
 #[repr(transparent)]
 pub struct BitBoard(pub u64);
 
+impl Default for BitBoard {
+    fn default() -> Self {
+        BitBoard::new()
+    }
+}
+
 impl BitBoard {
     pub fn new() -> Self {
         Self(0)
@@ -21,12 +27,12 @@ impl BitBoard {
 
     #[inline(always)]
     pub fn set_bit(&mut self, s: Square) {
-        self.0 = self.0 | (1 << s as u8)
+        self.0 |= 1 << s as u8
     }
 
     #[inline(always)]
     pub fn unset_bit(&mut self, s: Square) {
-        self.0 = self.0 & !(1 << s as u8)
+        self.0 &= !(1 << s as u8)
     }
 
     #[inline(always)]

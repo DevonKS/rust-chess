@@ -21,7 +21,7 @@ use rust_chess::perft;
 // }
 
 fn main() {
-    let l = lookup_tables::LookupTables::new();
+    let l = lookup_tables::LookupTables::generate();
 
     // let mut blockers_bitboard = bitboard::BitBoard::new();
     // blockers_bitboard.set_bit(core::Square::A3);
