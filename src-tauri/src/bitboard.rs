@@ -1,4 +1,4 @@
-use crate::core::Square;
+use crate::core::{Square, FILES, RANKS};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(transparent)]
@@ -70,12 +70,10 @@ impl BitBoard {
 
     pub fn print(&self) {
         println!();
-        for rank in (0..8).rev() {
-            print!("{}    ", rank + 1);
-            for file in 0..8 {
-                let square_index = rank * 8 + file;
-                let square = Square::try_from(square_index)
-                    .unwrap_or_else(|_| panic!("Invalid square index: {}", square_index));
+        for rank in RANKS.iter().rev() {
+            print!("{}    ", rank);
+            for file in FILES {
+                let square = Square::from((file, *rank));
                 let bit = if self.get_bit(square) { "1" } else { "0" };
                 print!(" {} ", bit);
             }

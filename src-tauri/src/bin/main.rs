@@ -1,11 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// use rust_chess::bitboard;
+use rust_chess::bitboard;
 use rust_chess::board;
-// use rust_chess::core;
+use rust_chess::core::Square;
 use rust_chess::lookup_tables;
-use rust_chess::perft;
 
 // // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 // #[tauri::command]
@@ -48,4 +47,6 @@ fn main() {
     //
     let b = board::Board::start_pos(&l);
     b.print();
+    let moves = b.generate_moves();
+    println!("{}: {:?}", moves.len(), moves);
 }

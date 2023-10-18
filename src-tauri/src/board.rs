@@ -1,5 +1,10 @@
+use std::fmt;
+
 use crate::bitboard;
-use crate::core::{Move, Piece, PieceKind, Player, Square, MAX_MOVES};
+use crate::core::{
+    Move, Piece, PieceKind, Player, Rank, Square, BLACK_PIECES, FILES, MAX_MOVES, RANKS,
+    WHITE_PIECES,
+};
 use crate::lookup_tables;
 
 use bitflags::bitflags;
@@ -9,14 +14,53 @@ bitflags! {
     #[repr(transparent)]
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct Castling: u8 {
-        const NONE = 0b00000000;
         const WHITE_K = 0b00000001;
         const WHITE_Q = 0b00000010;
         const BLACK_K = 0b00000100;
         const BLACK_Q = 0b00001000;
-        const WHITE_ALL = 0b00000011;
-        const BLACK_ALL = 0b00001100;
-        const ALL = 0b00001111;
+    }
+}
+
+impl fmt::Display for Castling {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_empty() {
+            write!(f, "-")
+        } else {
+            let mut s = String::new();
+
+            if self.contains(Castling::WHITE_K) {
+                s.push('K');
+            }
+
+            if self.contains(Castling::WHITE_Q) {
+                s.push('Q');
+            }
+
+            if self.contains(Castling::BLACK_K) {
+                s.push('k');
+            }
+
+            if self.contains(Castling::BLACK_Q) {
+                s.push('q');
+            }
+
+            write!(f, "{}", s)
+        }
+    }
+}
+
+impl TryFrom<char> for Castling {
+    type Error = String;
+
+    fn try_from(c: char) -> Result<Self, Self::Error> {
+        match c {
+            'K' => Ok(Castling::WHITE_K),
+            'Q' => Ok(Castling::WHITE_Q),
+            'k' => Ok(Castling::BLACK_K),
+            'q' => Ok(Castling::BLACK_Q),
+            '-' => Ok(Castling::empty()),
+            _ => Err(format!("unknown castling right: {}", c)),
+        }
     }
 }
 
@@ -45,7 +89,7 @@ impl<'a> Board<'a> {
                 turn: Player::White,
                 piece_bbs: [bitboard::BitBoard::new(); 12],
                 occ_bbs: [bitboard::BitBoard::new(); 3],
-                castling: Castling::ALL,
+                castling: Castling::all(),
                 en_passant: None,
                 half_moves: 0,
                 full_moves: 0,
@@ -75,21 +119,10 @@ impl<'a> Board<'a> {
             for c in row.chars() {
                 match c {
                     'R' | 'N' | 'B' | 'Q' | 'K' | 'P' | 'r' | 'n' | 'b' | 'q' | 'k' | 'p' => {
-                        let (bb_index, occ_index) = match c {
-                            'R' => (Piece::WhiteRook as usize, Player::White as usize),
-                            'N' => (Piece::WhiteKnight as usize, Player::White as usize),
-                            'B' => (Piece::WhiteBishop as usize, Player::White as usize),
-                            'Q' => (Piece::WhiteQueen as usize, Player::White as usize),
-                            'K' => (Piece::WhiteKing as usize, Player::White as usize),
-                            'P' => (Piece::WhitePawn as usize, Player::White as usize),
-                            'r' => (Piece::BlackRook as usize, Player::Black as usize),
-                            'n' => (Piece::BlackKnight as usize, Player::Black as usize),
-                            'b' => (Piece::BlackBishop as usize, Player::Black as usize),
-                            'q' => (Piece::BlackQueen as usize, Player::Black as usize),
-                            'k' => (Piece::BlackKing as usize, Player::Black as usize),
-                            'p' => (Piece::BlackPawn as usize, Player::Black as usize),
-                            x => panic!("unexpected piece placement character: {}", x),
-                        };
+                        let piece = Piece::try_from(c).unwrap();
+                        let bb_index = piece as usize;
+                        let player = Player::from(piece);
+                        let occ_index = player as usize;
                         let current_square = Square::try_from(current_index).unwrap();
                         b.state.piece_bbs[bb_index].set_bit(current_square);
                         b.state.occ_bbs[occ_index].set_bit(current_square);
@@ -107,27 +140,16 @@ impl<'a> Board<'a> {
             }
         }
 
-        b.state.turn = match caps.get(2).ok_or("expected active color")?.as_str() {
-            "w" => Player::White,
-            "b" => Player::Black,
-            active_color => panic!("unknown active color: {}", active_color),
-        };
+        b.state.turn =
+            Player::try_from(caps.get(2).ok_or("expected active color")?.as_str()).unwrap();
 
         b.state.castling = caps
             .get(3)
             .ok_or("expected castling rights")?
             .as_str()
             .chars()
-            .fold(Castling::NONE, |mut rights, c| {
-                match c {
-                    'K' => rights |= Castling::WHITE_K,
-                    'Q' => rights |= Castling::WHITE_Q,
-                    'k' => rights |= Castling::BLACK_K,
-                    'q' => rights |= Castling::BLACK_Q,
-                    '-' => (), // noop
-                    r => panic!("unknown castling right: {}", r),
-                };
-                rights
+            .fold(Castling::empty(), |rights, c| {
+                rights | Castling::try_from(c).unwrap()
             });
 
         b.state.en_passant = match caps.get(4).ok_or("expected en passant sqaure")?.as_str() {
@@ -149,6 +171,8 @@ impl<'a> Board<'a> {
             .parse()
             .unwrap_or(0);
 
+        // FIXME: Validate the state here
+
         Ok(b)
     }
 
@@ -156,11 +180,10 @@ impl<'a> Board<'a> {
     pub fn fen(&self) -> String {
         let mut fen_string = String::new();
 
-        // FIXME: Make a lists of all the enums in the core module
-        for rank in [1, 2, 3, 4, 5, 6, 7, 8].iter().rev() {
+        for rank in RANKS.iter().rev() {
             let mut current_offset = 0;
-            for file in ["a", "b", "c", "d", "e", "f", "g", "h"] {
-                let square = Square::try_from(format!("{}{}", file, rank).as_str()).unwrap();
+            for file in FILES {
+                let square = Square::from((file, *rank));
                 let piece = self.get_piece(square);
                 match piece {
                     Some(p) => {
@@ -168,20 +191,7 @@ impl<'a> Board<'a> {
                             fen_string.push(char::from_digit(current_offset, 10).unwrap());
                             current_offset = 0;
                         }
-                        match p {
-                            Piece::WhiteRook => fen_string.push('R'),
-                            Piece::WhiteKnight => fen_string.push('N'),
-                            Piece::WhiteBishop => fen_string.push('B'),
-                            Piece::WhiteQueen => fen_string.push('Q'),
-                            Piece::WhiteKing => fen_string.push('K'),
-                            Piece::WhitePawn => fen_string.push('P'),
-                            Piece::BlackRook => fen_string.push('r'),
-                            Piece::BlackKnight => fen_string.push('n'),
-                            Piece::BlackBishop => fen_string.push('b'),
-                            Piece::BlackQueen => fen_string.push('q'),
-                            Piece::BlackKing => fen_string.push('k'),
-                            Piece::BlackPawn => fen_string.push('p'),
-                        }
+                        fen_string.push_str(&p.to_string());
                     }
                     None => current_offset += 1,
                 }
@@ -191,42 +201,21 @@ impl<'a> Board<'a> {
                 fen_string.push(char::from_digit(current_offset, 10).unwrap());
             }
 
-            if *rank != 1 {
+            if *rank != Rank::R1 {
                 fen_string.push('/')
             }
         }
 
-        fen_string.push_str(match self.state.turn {
-            Player::White => " w",
-            Player::Black => " b",
-        });
+        fen_string.push(' ');
+        fen_string.push_str(&self.state.turn.to_string());
 
-        if self.state.castling == Castling::NONE {
-            fen_string.push_str(" -");
-        } else {
-            fen_string.push(' ');
-
-            if self.state.castling.contains(Castling::WHITE_K) {
-                fen_string.push('K');
-            }
-
-            if self.state.castling.contains(Castling::WHITE_Q) {
-                fen_string.push('Q');
-            }
-
-            if self.state.castling.contains(Castling::BLACK_K) {
-                fen_string.push('k');
-            }
-
-            if self.state.castling.contains(Castling::BLACK_Q) {
-                fen_string.push('q');
-            }
-        }
+        fen_string.push(' ');
+        fen_string.push_str(&self.state.castling.to_string());
 
         match self.state.en_passant {
             Some(s) => {
                 fen_string.push(' ');
-                fen_string.push_str(format!("{:?}", s).to_lowercase().as_str());
+                fen_string.push_str(&s.to_string());
             }
             None => fen_string.push_str(" -"),
         }
@@ -240,7 +229,6 @@ impl<'a> Board<'a> {
         fen_string
     }
 
-    // FIXME: I should use from_fen to set this up.
     pub fn start_pos(l: &'a lookup_tables::LookupTables) -> Self {
         Board::from_fen(
             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -267,26 +255,9 @@ impl<'a> Board<'a> {
     }
 
     pub fn generate_moves(&self) -> Vec<Move> {
-        let white_pieces = [
-            Piece::WhiteRook,
-            Piece::WhiteKnight,
-            Piece::WhiteBishop,
-            Piece::WhiteQueen,
-            Piece::WhiteKing,
-            Piece::WhitePawn,
-        ];
-        let black_pieces = [
-            Piece::BlackRook,
-            Piece::BlackKnight,
-            Piece::BlackBishop,
-            Piece::BlackQueen,
-            Piece::BlackKing,
-            Piece::BlackPawn,
-        ];
-        let pieces = if self.state.turn == Player::White {
-            white_pieces
-        } else {
-            black_pieces
+        let pieces = match self.state.turn {
+            Player::White => WHITE_PIECES,
+            Player::Black => BLACK_PIECES,
         };
 
         let mut moves = Vec::with_capacity(MAX_MOVES);
@@ -406,29 +377,14 @@ impl<'a> Board<'a> {
 
     pub fn print(&self) {
         println!();
-        for rank in (0..8).rev() {
-            print!("{}    ", rank + 1);
-            for file in 0..8 {
-                let square_index = rank * 8 + file;
-                let square = Square::try_from(square_index)
-                    .unwrap_or_else(|_| panic!("Invalid square index: {}", square_index));
+        for rank in RANKS.iter().rev() {
+            print!("{}    ", rank);
+            for file in FILES {
+                let square = Square::from((file, *rank));
                 let piece = self.get_piece(square);
                 let piece_repr = match piece {
-                    Some(p) => match p {
-                        Piece::WhiteRook => "R",
-                        Piece::WhiteKnight => "N",
-                        Piece::WhiteBishop => "B",
-                        Piece::WhiteQueen => "Q",
-                        Piece::WhiteKing => "K",
-                        Piece::WhitePawn => "P",
-                        Piece::BlackRook => "r",
-                        Piece::BlackKnight => "n",
-                        Piece::BlackBishop => "b",
-                        Piece::BlackQueen => "q",
-                        Piece::BlackKing => "k",
-                        Piece::BlackPawn => "p",
-                    },
-                    None => ".",
+                    Some(p) => p.to_string(),
+                    None => ".".to_string(),
                 };
                 print!(" {} ", piece_repr);
             }
@@ -450,7 +406,7 @@ mod tests {
     };
 
     #[test]
-    fn from_fen_starting_position() {
+    fn from_fen() {
         struct TestCase {
             name: &'static str,
             fen: &'static str,
@@ -483,7 +439,7 @@ mod tests {
                         bitboard::BitBoard(18446462598732840960),
                         bitboard::BitBoard(18446462598732906495),
                     ],
-                    castling: Castling::ALL,
+                    castling: Castling::all(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 1,
@@ -513,7 +469,7 @@ mod tests {
                         bitboard::BitBoard(18443930457813811200),
                         bitboard::BitBoard(18443930526533349375),
                     ],
-                    castling: Castling::ALL,
+                    castling: Castling::all(),
                     en_passant: Some(Square::D6),
                     half_moves: 0,
                     full_moves: 3,
@@ -543,7 +499,7 @@ mod tests {
                         bitboard::BitBoard(10483661951467520000),
                         bitboard::BitBoard(10483662054817595281),
                     ],
-                    castling: Castling::ALL,
+                    castling: Castling::all(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 0,
@@ -573,7 +529,7 @@ mod tests {
                         bitboard::BitBoard(1135248440033280),
                         bitboard::BitBoard(1135261358510080),
                     ],
-                    castling: Castling::NONE,
+                    castling: Castling::empty(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 0,
@@ -633,7 +589,7 @@ mod tests {
                         bitboard::BitBoard(7058879030946168832),
                         bitboard::BitBoard(7058879306162632289),
                     ],
-                    castling: Castling::NONE,
+                    castling: Castling::empty(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 10,
@@ -685,7 +641,7 @@ mod tests {
                         bitboard::BitBoard(18446462598732840960),
                         bitboard::BitBoard(18446462598732906495),
                     ],
-                    castling: Castling::ALL,
+                    castling: Castling::all(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 1,
@@ -715,7 +671,7 @@ mod tests {
                         bitboard::BitBoard(18443930457813811200),
                         bitboard::BitBoard(18443930526533349375),
                     ],
-                    castling: Castling::ALL,
+                    castling: Castling::all(),
                     en_passant: Some(Square::D6),
                     half_moves: 0,
                     full_moves: 3,
@@ -745,7 +701,7 @@ mod tests {
                         bitboard::BitBoard(10483661951467520000),
                         bitboard::BitBoard(10483662054817595281),
                     ],
-                    castling: Castling::ALL,
+                    castling: Castling::all(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 0,
@@ -776,7 +732,7 @@ mod tests {
                         bitboard::BitBoard(1135248440033280),
                         bitboard::BitBoard(1135261358510080),
                     ],
-                    castling: Castling::NONE,
+                    castling: Castling::empty(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 0,
@@ -836,7 +792,7 @@ mod tests {
                         bitboard::BitBoard(7058879030946168832),
                         bitboard::BitBoard(7058879306162632289),
                     ],
-                    castling: Castling::NONE,
+                    castling: Castling::empty(),
                     en_passant: None,
                     half_moves: 0,
                     full_moves: 10,
@@ -849,6 +805,8 @@ mod tests {
         for test_case in test_cases {
             let mut b = Board::new(&l);
             b.state = test_case.state;
+
+            b.print();
 
             assert_eq!(b.fen(), test_case.expected_fen, "{} failed", test_case.name);
         }

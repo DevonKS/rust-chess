@@ -1,5 +1,6 @@
 use crate::bitboard;
 use crate::core;
+use crate::core::SQUARES;
 use crate::core::{
     File, Piece, PieceKind, Rank, Square, NOT_AB_FILE, NOT_A_FILE, NOT_GH_FILE, NOT_H_FILE,
 };
@@ -24,7 +25,6 @@ impl std::fmt::Debug for LookupTables {
 }
 
 impl LookupTables {
-    // FIXME: Is it bad practice for new to do heavy lifting?
     pub fn generate() -> Self {
         let rook_moves_mask = gen_sliding_moves_mask(true);
         let bishop_moves_mask = gen_sliding_moves_mask(false);
@@ -73,21 +73,14 @@ impl LookupTables {
             _ => panic!("lookup_capture_moves is only supported for Pawns"),
         }
     }
-
-    pub fn lookup_moves_mask(&self, p: Piece, s: Square) -> bitboard::BitBoard {
-        match PieceKind::from(p) {
-            PieceKind::Rook => self.rook_moves_mask[s as usize],
-            _ => panic!("lookup_moves_mask is only supported for Rooks"),
-        }
-    }
 }
 
 fn gen_knight_moves() -> [bitboard::BitBoard; 64] {
-    let mut moves = [bitboard::BitBoard::new(); 64];
-    for (s, m) in moves.iter_mut().enumerate() {
-        *m = gen_knight_move(s as u64);
+    let mut moves = Vec::with_capacity(64);
+    for s in SQUARES {
+        moves.push(gen_knight_move(s as u64))
     }
-    moves
+    moves.try_into().unwrap()
 }
 
 fn gen_knight_move(s: u64) -> bitboard::BitBoard {
@@ -105,12 +98,16 @@ fn gen_knight_move(s: u64) -> bitboard::BitBoard {
 }
 
 fn gen_pawn_moves() -> [[bitboard::BitBoard; 64]; 2] {
-    let mut moves = [[bitboard::BitBoard::new(); 64]; 2];
-    for s in 0..64 {
-        moves[0][s] = gen_pawn_move(s as u64, true);
-        moves[1][s] = gen_pawn_move(s as u64, false);
+    let mut white_moves = Vec::with_capacity(64);
+    let mut black_moves = Vec::with_capacity(64);
+    for s in SQUARES {
+        white_moves.push(gen_pawn_move(s as u64, true));
+        black_moves.push(gen_pawn_move(s as u64, false));
     }
-    moves
+    [
+        white_moves.try_into().unwrap(),
+        black_moves.try_into().unwrap(),
+    ]
 }
 
 fn gen_pawn_move(s: u64, is_white: bool) -> bitboard::BitBoard {
@@ -119,31 +116,27 @@ fn gen_pawn_move(s: u64, is_white: bool) -> bitboard::BitBoard {
         let mut moves = 0;
         moves |= bb << 8;
 
-        // if s >= 8 && s <= 15 {
-        //     moves |= bb << 16;
-        // }
-
         bitboard::BitBoard(moves)
     } else {
         let bb = 1 << s;
         let mut moves = 0;
         moves |= bb >> 8;
 
-        // if s >= 48 && s <= 55 {
-        //     moves |= bb >> 16;
-        // }
-
         bitboard::BitBoard(moves)
     }
 }
 
 fn gen_pawn_capture_moves() -> [[bitboard::BitBoard; 64]; 2] {
-    let mut moves = [[bitboard::BitBoard::new(); 64]; 2];
-    for s in 0..64 {
-        moves[0][s] = gen_pawn_capture_move(s as u64, true);
-        moves[1][s] = gen_pawn_capture_move(s as u64, false);
+    let mut white_moves = Vec::with_capacity(64);
+    let mut black_moves = Vec::with_capacity(64);
+    for s in SQUARES {
+        white_moves.push(gen_pawn_capture_move(s as u64, true));
+        black_moves.push(gen_pawn_capture_move(s as u64, false));
     }
-    moves
+    [
+        white_moves.try_into().unwrap(),
+        black_moves.try_into().unwrap(),
+    ]
 }
 
 fn gen_pawn_capture_move(s: u64, is_white: bool) -> bitboard::BitBoard {
@@ -163,11 +156,11 @@ fn gen_pawn_capture_move(s: u64, is_white: bool) -> bitboard::BitBoard {
 }
 
 fn gen_king_moves() -> [bitboard::BitBoard; 64] {
-    let mut moves = [bitboard::BitBoard::new(); 64];
-    for (s, m) in moves.iter_mut().enumerate() {
-        *m = gen_king_move(s as u64);
+    let mut moves = Vec::with_capacity(64);
+    for s in SQUARES {
+        moves.push(gen_king_move(s as u64))
     }
-    moves
+    moves.try_into().unwrap()
 }
 
 fn gen_king_move(s: u64) -> bitboard::BitBoard {
@@ -252,11 +245,11 @@ fn gen_sliding_move(s: u8, blockers: u64, is_rook: bool) -> bitboard::BitBoard {
 }
 
 fn gen_sliding_moves_mask(is_rook: bool) -> [bitboard::BitBoard; 64] {
-    let mut moves = [bitboard::BitBoard::new(); 64];
-    for (s, m) in moves.iter_mut().enumerate() {
-        *m = gen_sliding_move_mask(s as u8, is_rook);
+    let mut moves = Vec::with_capacity(64);
+    for s in SQUARES {
+        moves.push(gen_sliding_move_mask(s as u8, is_rook));
     }
-    moves
+    moves.try_into().unwrap()
 }
 
 fn gen_sliding_move_mask(s: u8, is_rook: bool) -> bitboard::BitBoard {
