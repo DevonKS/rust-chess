@@ -1,9 +1,9 @@
-use std::fmt;
+use std::{cmp, fmt};
 
-use crate::bitboard;
+use crate::bitboard::{self, BitBoard};
 use crate::core::{
-    Move, Piece, PieceKind, Player, Rank, Square, BLACK_PIECES, FILES, MAX_MOVES, RANKS,
-    WHITE_PIECES,
+    File, Move, Piece, PieceKind, Player, Rank, Square, BLACK_PIECES, FILES, MAX_MOVES, PIECES,
+    RANKS, RANK_1, RANK_8, WHITE_PIECES,
 };
 use crate::lookup_tables;
 
@@ -73,6 +73,9 @@ struct BoardState {
     en_passant: Option<Square>,
     half_moves: u32,
     full_moves: u32,
+
+    // State to help with move generation
+    checkers: bitboard::BitBoard,
 }
 
 #[derive(Debug)]
@@ -93,6 +96,7 @@ impl<'a> Board<'a> {
                 en_passant: None,
                 half_moves: 0,
                 full_moves: 0,
+                checkers: bitboard::BitBoard::new(),
             },
             previous_states: Vec::new(),
             lookup_tables: l,
@@ -103,19 +107,24 @@ impl<'a> Board<'a> {
         let mut b = Board::new(l);
 
         let re = Regex::new(
-            r"^([rnbqkpRNBQKP/1-8]+)\s+(w|b)\s+([KQkq]+|-)\s+(-|[a-h][1-8])\s*(\d*)\s*(\d*)\s*$",
+            r"^([rnbqkpRNBQKP/1-8]+)\s+(w|b)\s+([KQkq]+|-)\s+(-|[a-h][36])\s*(\d*)\s*(\d*)\s*$",
         )
         .unwrap();
 
         let caps = re.captures(fen).ok_or("invalid fen")?;
 
-        let mut current_index: u8 = 56;
-        for row in caps
+        let mut current_index: u8 = 0;
+        for (i, row) in caps
             .get(1)
             .ok_or("expected piece placement")?
             .as_str()
             .split('/')
+            .rev()
+            .enumerate()
         {
+            if i > 7 {
+                return Err("too many ranks".to_string());
+            }
             for c in row.chars() {
                 match c {
                     'R' | 'N' | 'B' | 'Q' | 'K' | 'P' | 'r' | 'n' | 'b' | 'q' | 'k' | 'p' => {
@@ -134,9 +143,6 @@ impl<'a> Board<'a> {
                     }
                     x => panic!("unexpected piece placement character: {}", x),
                 };
-            }
-            if current_index >= 16 {
-                current_index -= 16;
             }
         }
 
@@ -171,9 +177,38 @@ impl<'a> Board<'a> {
             .parse()
             .unwrap_or(0);
 
-        // FIXME: Validate the state here
+        b.state.checkers = b.get_checkers();
+
+        if let Some(errors) = b.is_valid() {
+            return Err(errors.join("\n"));
+        }
 
         Ok(b)
+    }
+
+    fn get_checkers(&self) -> BitBoard {
+        let king_piece = match self.state.turn {
+            Player::White => Piece::WhiteKing,
+            Player::Black => Piece::BlackKing,
+        };
+        let king_square = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
+        match self.state.turn {
+            Player::White => BLACK_PIECES,
+            Player::Black => WHITE_PIECES,
+        }
+        .iter()
+        .fold(BitBoard::new(), |mut x, p| {
+            let mut moves: Vec<Move> = Vec::new();
+            self.generate_piece_moves(*p, &mut moves);
+
+            for m in moves {
+                if m.1 == king_square {
+                    x.set_bit(m.0);
+                    break;
+                }
+            }
+            x
+        })
     }
 
     // FIXME: proper error handling
@@ -253,9 +288,12 @@ impl<'a> Board<'a> {
             pbb.print();
         }
     }
-
     pub fn generate_moves(&self) -> Vec<Move> {
-        let pieces = match self.state.turn {
+        self.generate_moves_for_player(self.state.turn)
+    }
+
+    pub fn generate_moves_for_player(&self, player: Player) -> Vec<Move> {
+        let pieces = match player {
             Player::White => WHITE_PIECES,
             Player::Black => BLACK_PIECES,
         };
@@ -292,10 +330,9 @@ impl<'a> Board<'a> {
     }
 
     fn get_piece(&self, s: Square) -> Option<Piece> {
-        for i in 0..12 {
-            if self.state.piece_bbs[i].get_bit(s) {
-                // FIXME: I should probably implement a try_from for this
-                return unsafe { Some(std::mem::transmute::<u8, Piece>(i as u8)) };
+        for p in PIECES {
+            if self.state.piece_bbs[p as usize].get_bit(s) {
+                return Some(p);
             }
         }
         None
@@ -320,7 +357,7 @@ impl<'a> Board<'a> {
             let move_bb = self
                 .lookup_tables
                 .lookup_moves(p, from, self.state.occ_bbs[2].0);
-            let occ = self.state.occ_bbs[self.state.turn as usize];
+            let occ = self.state.occ_bbs[Player::from(p) as usize];
             let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!occ.0));
             while let Some(to) = valid_moves_bb.pop_lsb() {
                 moves.push(Move(from, to));
@@ -331,7 +368,7 @@ impl<'a> Board<'a> {
     fn generate_pawn_moves(&self, p: Piece, moves: &mut Vec<Move>) {
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
-            let is_white = self.state.turn == Player::White;
+            let is_white = Player::from(p) == Player::White;
             let move_bb = self
                 .lookup_tables
                 .lookup_moves(p, from, self.state.occ_bbs[2].0);
@@ -375,6 +412,296 @@ impl<'a> Board<'a> {
         }
     }
 
+    fn get_squares_attacked_by(&self, p: Player) -> BitBoard {
+        // FIXME: Need to think about what type of moves
+        self.generate_moves_for_player(p)
+            .iter()
+            .fold(BitBoard::new(), |mut attacked, m| {
+                attacked.set_bit(m.1);
+                attacked
+            })
+    }
+
+    fn count_piece(&self, p: Piece) -> u8 {
+        self.state.piece_bbs[p as usize].0.count_ones() as u8
+    }
+
+    // FIXME: Is it strange that this is an option? Is just the vector enough cause it will be
+    // empty if it's fine?
+    pub fn is_valid(&self) -> Option<Vec<String>> {
+        let mut errors = Vec::new();
+
+        // Piece count validation
+        if self.count_piece(Piece::WhiteKing) != 1 {
+            errors.push(format!(
+                "incorrect number of white kings: {}",
+                self.count_piece(Piece::WhiteKing)
+            ));
+        }
+
+        if self.count_piece(Piece::BlackKing) != 1 {
+            errors.push(format!(
+                "incorrect number of black kings: {}",
+                self.count_piece(Piece::BlackKing)
+            ));
+        }
+
+        if self.count_piece(Piece::WhitePawn) > 8 {
+            errors.push(format!(
+                "incorrect number of white pawns: {}",
+                self.count_piece(Piece::WhitePawn)
+            ));
+        }
+
+        if self.count_piece(Piece::BlackPawn) > 8 {
+            errors.push(format!(
+                "incorrect number of black pawns: {}",
+                self.count_piece(Piece::BlackPawn)
+            ));
+        }
+
+        let num_white_pieces = WHITE_PIECES
+            .iter()
+            .fold(0, |acc, p| acc + self.count_piece(*p));
+        if num_white_pieces > 16 {
+            errors.push(format!(
+                "incorrect number of white pieces: {}",
+                num_white_pieces,
+            ));
+        }
+
+        let num_black_pieces = BLACK_PIECES
+            .iter()
+            .fold(0, |acc, p| acc + self.count_piece(*p));
+        if num_black_pieces > 16 {
+            errors.push(format!(
+                "incorrect number of black pieces: {}",
+                num_black_pieces,
+            ));
+        }
+
+        // Internal state validation
+        if self.state.occ_bbs[Player::White as usize].0
+            != WHITE_PIECES
+                .iter()
+                .fold(0_u64, |bb, p| bb | self.state.piece_bbs[*p as usize].0)
+        {
+            errors.push("white occupancy bitboard doesn't match piece bitboards".to_string());
+        }
+
+        if self.state.occ_bbs[Player::Black as usize].0
+            != BLACK_PIECES
+                .iter()
+                .fold(0_u64, |bb, p| bb | self.state.piece_bbs[*p as usize].0)
+        {
+            errors.push("black occupancy bitboard doesn't match piece bitboards".to_string());
+        }
+
+        if self.state.occ_bbs[2].0 != (self.state.occ_bbs[0].0 | self.state.occ_bbs[1].0) {
+            errors.push(
+                "all occupancy bitboard doesn't match player occupancy bitboards".to_string(),
+            );
+        }
+
+        if self.state.checkers != self.get_checkers() {
+            errors.push("checkers bitboard is not correct".to_string());
+        }
+
+        for p1 in PIECES {
+            for p2 in PIECES {
+                if p1 != p2
+                    && (self.state.piece_bbs[p1 as usize].0 & self.state.piece_bbs[p2 as usize].0)
+                        > 0
+                {
+                    errors.push(format!("{} and {} are on the same square", p1, p2));
+                }
+            }
+        }
+
+        // Board Validation
+        let white_king_square = self.state.piece_bbs[Piece::WhiteKing as usize]
+            .get_lsb()
+            .unwrap();
+        let white_king_rank = Rank::from(white_king_square) as i8;
+        let white_king_file = File::from(white_king_square) as i8;
+
+        let black_king_square = self.state.piece_bbs[Piece::BlackKing as usize]
+            .get_lsb()
+            .unwrap();
+        let black_king_rank = Rank::from(black_king_square) as i8;
+        let black_king_file = File::from(black_king_square) as i8;
+
+        let king_distance = cmp::max(
+            (white_king_file - black_king_file).abs(),
+            (white_king_rank - black_king_rank).abs(),
+        );
+        if king_distance < 2 {
+            errors.push("Kings are too close together".to_string());
+        }
+
+        let num_checks = self.state.checkers.0.count_ones();
+        if num_checks > 2 {
+            errors.push(format!(
+                "Only 2 checkers are possible. {} found.",
+                num_checks
+            ));
+        }
+
+        if num_checks == 2 {
+            let piece_1 = PieceKind::from(
+                self.get_piece(self.state.checkers.get_lsb().unwrap())
+                    .unwrap(),
+            );
+            let piece_2 = PieceKind::from(
+                self.get_piece(self.state.checkers.get_msb().unwrap())
+                    .unwrap(),
+            );
+
+            // FIXME: Can I make this if nicer?
+            if (piece_1 == PieceKind::Pawn
+                && (piece_2 == PieceKind::Pawn
+                    || piece_2 == PieceKind::Bishop
+                    || piece_2 == PieceKind::Knight))
+                || (piece_1 == PieceKind::Bishop
+                    && (piece_2 == PieceKind::Bishop || piece_2 == PieceKind::Pawn)
+                    || piece_1 == PieceKind::Knight
+                        && (piece_2 == PieceKind::Knight || piece_2 == PieceKind::Pawn))
+            {
+                errors.push(format!(
+                    "cannot double check with a {:?} and a {:?}",
+                    piece_1, piece_2
+                ));
+            }
+        }
+
+        let non_active_king = match self.state.turn {
+            Player::White => Piece::BlackKing,
+            Player::Black => Piece::WhiteKing,
+        };
+        if (self.get_squares_attacked_by(self.state.turn).0
+            & self.state.piece_bbs[non_active_king as usize].0)
+            > 0
+        {
+            errors.push("non active color is in check".to_string());
+        }
+
+        if (self.state.piece_bbs[Piece::WhitePawn as usize].0 & RANK_1) > 0 {
+            errors.push("cannot have white pawns on rank 1".to_string())
+        }
+
+        if (self.state.piece_bbs[Piece::WhitePawn as usize].0 & RANK_8) > 0 {
+            errors.push("cannot have white pawns on rank 8".to_string())
+        }
+
+        if (self.state.piece_bbs[Piece::BlackPawn as usize].0 & RANK_1) > 0 {
+            errors.push("cannot have black pawns on rank 1".to_string())
+        }
+
+        if (self.state.piece_bbs[Piece::BlackPawn as usize].0 & RANK_8) > 0 {
+            errors.push("cannot have black pawns on rank 8".to_string())
+        }
+
+        if let Some(en_passant_square) = self.state.en_passant {
+            let en_passant_file = File::from(en_passant_square);
+            let en_passant_rank = Rank::from(en_passant_square);
+            match en_passant_rank {
+                Rank::R3 => {
+                    if self
+                        .get_piece(Square::from((en_passant_file, Rank::R3)))
+                        .is_some()
+                        || self
+                            .get_piece(Square::from((en_passant_file, Rank::R2)))
+                            .is_some()
+                        || self.get_piece(Square::from((en_passant_file, Rank::R4)))
+                            != Some(Piece::WhitePawn)
+                    {
+                        errors.push("invalid en passant square".to_string())
+                    }
+                }
+                Rank::R6 => {
+                    if self
+                        .get_piece(Square::from((en_passant_file, Rank::R6)))
+                        .is_some()
+                        || self
+                            .get_piece(Square::from((en_passant_file, Rank::R7)))
+                            .is_some()
+                        || self.get_piece(Square::from((en_passant_file, Rank::R5)))
+                            != Some(Piece::BlackPawn)
+                    {
+                        errors.push("invalid en passant square".to_string())
+                    }
+                }
+                _ => errors.push(format!("invalid en passant rank: {}", en_passant_rank)),
+            }
+        }
+
+        let num_extra_white_pieces = cmp::max(0, self.count_piece(Piece::WhiteQueen) as i8 - 1)
+            + cmp::max(0, self.count_piece(Piece::WhiteRook) as i8 - 2)
+            + cmp::max(0, self.count_piece(Piece::WhiteKnight) as i8 - 2)
+            + cmp::max(0, self.count_piece(Piece::WhiteBishop) as i8 - 2);
+        let missing_white_pawns = 8 - self.count_piece(Piece::WhitePawn) as i8;
+        if num_extra_white_pieces > missing_white_pawns {
+            errors.push("too many promoted white pieces".to_string())
+        }
+
+        let num_extra_black_pieces = cmp::max(0, self.count_piece(Piece::BlackQueen) as i8 - 1)
+            + cmp::max(0, self.count_piece(Piece::BlackRook) as i8 - 2)
+            + cmp::max(0, self.count_piece(Piece::BlackKnight) as i8 - 2)
+            + cmp::max(0, self.count_piece(Piece::BlackBishop) as i8 - 2);
+        let missing_black_pawns = 8 - self.count_piece(Piece::BlackPawn) as i8;
+        if num_extra_black_pieces > missing_black_pawns {
+            errors.push("too many promoted black pieces".to_string())
+        }
+
+        if self.get_piece(Square::E1) != Some(Piece::WhiteKing) {
+            if self.state.castling.contains(Castling::WHITE_Q) {
+                errors.push("white shouldn't have queenside castling rights".to_string())
+            }
+            if self.state.castling.contains(Castling::WHITE_K) {
+                errors.push("white shouldn't have kingside castling rights".to_string())
+            }
+        } else {
+            if self.get_piece(Square::A1) != Some(Piece::WhiteRook)
+                && self.state.castling.contains(Castling::WHITE_Q)
+            {
+                errors.push("white shouldn't have queenside castling rights".to_string())
+            }
+
+            if self.get_piece(Square::H1) != Some(Piece::WhiteRook)
+                && self.state.castling.contains(Castling::WHITE_K)
+            {
+                errors.push("white shouldn't have kingside castling rights".to_string())
+            }
+        }
+
+        if self.get_piece(Square::E8) != Some(Piece::BlackKing) {
+            if self.state.castling.contains(Castling::BLACK_Q) {
+                errors.push("black shouldn't have queenside castling rights".to_string())
+            }
+            if self.state.castling.contains(Castling::BLACK_K) {
+                errors.push("black shouldn't have kingside castling rights".to_string())
+            }
+        } else {
+            if self.get_piece(Square::A8) != Some(Piece::BlackRook)
+                && self.state.castling.contains(Castling::BLACK_Q)
+            {
+                errors.push("black shouldn't have queenside castling rights".to_string())
+            }
+
+            if self.get_piece(Square::H8) != Some(Piece::BlackRook)
+                && self.state.castling.contains(Castling::BLACK_K)
+            {
+                errors.push("black shouldn't have kingside castling rights".to_string())
+            }
+        }
+
+        if errors.is_empty() {
+            None
+        } else {
+            Some(errors)
+        }
+    }
+
     pub fn print(&self) {
         println!();
         for rank in RANKS.iter().rev() {
@@ -401,12 +728,213 @@ mod tests {
     use crate::{
         bitboard,
         board::{Board, BoardState, Castling},
-        core::{Player, Square},
+        core::{
+            Player, Square, EN_PASSANT_FEN, IN_CHECK_FEN, POS_2_KIWIPETE_FEN, POS_3_FEN, POS_5_FEN,
+            POS_6_FEN, STARTING_POS_FEN,
+        },
         lookup_tables::LookupTables,
     };
 
+    const STARTING_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(129),
+            bitboard::BitBoard(66),
+            bitboard::BitBoard(36),
+            bitboard::BitBoard(8),
+            bitboard::BitBoard(16),
+            bitboard::BitBoard(65280),
+            bitboard::BitBoard(9295429630892703744),
+            bitboard::BitBoard(4755801206503243776),
+            bitboard::BitBoard(2594073385365405696),
+            bitboard::BitBoard(576460752303423488),
+            bitboard::BitBoard(1152921504606846976),
+            bitboard::BitBoard(71776119061217280),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(65535),
+            bitboard::BitBoard(18446462598732840960),
+            bitboard::BitBoard(18446462598732906495),
+        ],
+        castling: Castling::all(),
+        en_passant: None,
+        half_moves: 0,
+        full_moves: 1,
+        checkers: bitboard::BitBoard(0),
+    };
+
+    const EN_PASSANT_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(129),
+            bitboard::BitBoard(66),
+            bitboard::BitBoard(36),
+            bitboard::BitBoard(8),
+            bitboard::BitBoard(16),
+            bitboard::BitBoard(68719537920),
+            bitboard::BitBoard(9295429630892703744),
+            bitboard::BitBoard(4755801206503243776),
+            bitboard::BitBoard(2594073385365405696),
+            bitboard::BitBoard(576460752303423488),
+            bitboard::BitBoard(1152921504606846976),
+            bitboard::BitBoard(69243978142187520),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(68719538175),
+            bitboard::BitBoard(18443930457813811200),
+            bitboard::BitBoard(18443930526533349375),
+        ],
+        castling: Castling::all(),
+        en_passant: Some(Square::D6),
+        half_moves: 0,
+        full_moves: 3,
+        checkers: bitboard::BitBoard(0),
+    };
+
+    const POS_2_KIWIPETE_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(129),
+            bitboard::BitBoard(68719738880),
+            bitboard::BitBoard(6144),
+            bitboard::BitBoard(2097152),
+            bitboard::BitBoard(16),
+            bitboard::BitBoard(34628232960),
+            bitboard::BitBoard(9295429630892703744),
+            bitboard::BitBoard(37383395344384),
+            bitboard::BitBoard(18015498021109760),
+            bitboard::BitBoard(4503599627370496),
+            bitboard::BitBoard(1152921504606846976),
+            bitboard::BitBoard(12754334924144640),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(103350075281),
+            bitboard::BitBoard(10483661951467520000),
+            bitboard::BitBoard(10483662054817595281),
+        ],
+        castling: Castling::all(),
+        en_passant: None,
+        half_moves: 0,
+        full_moves: 0,
+        checkers: bitboard::BitBoard(0),
+    };
+
+    const POS_3_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(33554432),
+            bitboard::BitBoard(0),
+            bitboard::BitBoard(0),
+            bitboard::BitBoard(0),
+            bitboard::BitBoard(4294967296),
+            bitboard::BitBoard(8589955072),
+            bitboard::BitBoard(549755813888),
+            bitboard::BitBoard(0),
+            bitboard::BitBoard(0),
+            bitboard::BitBoard(0),
+            bitboard::BitBoard(2147483648),
+            bitboard::BitBoard(1134696536735744),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(12918476800),
+            bitboard::BitBoard(1135248440033280),
+            bitboard::BitBoard(1135261358510080),
+        ],
+        castling: Castling::empty(),
+        en_passant: None,
+        half_moves: 0,
+        full_moves: 0,
+        checkers: bitboard::BitBoard(0),
+    };
+
+    const POS_5_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(129),
+            bitboard::BitBoard(4098),
+            bitboard::BitBoard(67108868),
+            bitboard::BitBoard(8),
+            bitboard::BitBoard(16),
+            bitboard::BitBoard(2251799813736192),
+            bitboard::BitBoard(9295429630892703744),
+            bitboard::BitBoard(144115188075864064),
+            bitboard::BitBoard(292733975779082240),
+            bitboard::BitBoard(576460752303423488),
+            bitboard::BitBoard(2305843009213693952),
+            bitboard::BitBoard(63899217759830016),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(2251799880849311),
+            bitboard::BitBoard(12678481774024597504),
+            bitboard::BitBoard(12680733573905446815),
+        ],
+        castling: Castling::from_bits_truncate(Castling::WHITE_K.bits() | Castling::WHITE_Q.bits()),
+        en_passant: None,
+        half_moves: 1,
+        full_moves: 8,
+        checkers: bitboard::BitBoard(0),
+    };
+
+    const POS_6_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(33),
+            bitboard::BitBoard(2359296),
+            bitboard::BitBoard(274945015808),
+            bitboard::BitBoard(4096),
+            bitboard::BitBoard(64),
+            bitboard::BitBoard(269084160),
+            bitboard::BitBoard(2377900603251621888),
+            bitboard::BitBoard(39582418599936),
+            bitboard::BitBoard(18253611008),
+            bitboard::BitBoard(4503599627370496),
+            bitboard::BitBoard(4611686018427387904),
+            bitboard::BitBoard(64749208967577600),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(275216463457),
+            bitboard::BitBoard(7058879030946168832),
+            bitboard::BitBoard(7058879306162632289),
+        ],
+        castling: Castling::empty(),
+        en_passant: None,
+        half_moves: 0,
+        full_moves: 10,
+        checkers: bitboard::BitBoard(0),
+    };
+
+    const IN_CHECK_BOARD_STATE: BoardState = BoardState {
+        turn: Player::White,
+        piece_bbs: [
+            bitboard::BitBoard(129),
+            bitboard::BitBoard(2097154),
+            bitboard::BitBoard(36),
+            bitboard::BitBoard(8),
+            bitboard::BitBoard(16),
+            bitboard::BitBoard(134280960),
+            bitboard::BitBoard(9295429630892703744),
+            bitboard::BitBoard(4755801206503243776),
+            bitboard::BitBoard(288230376185266176),
+            bitboard::BitBoard(576460752303423488),
+            bitboard::BitBoard(1152921504606846976),
+            bitboard::BitBoard(67290111619891200),
+        ],
+        occ_bbs: [
+            bitboard::BitBoard(136378303),
+            bitboard::BitBoard(16136133582111375360),
+            bitboard::BitBoard(16136133582247753663),
+        ],
+        castling: Castling::all(),
+        en_passant: None,
+        half_moves: 2,
+        full_moves: 3,
+        checkers: bitboard::BitBoard(33554432),
+    };
+
+    // FIXME: Need to add a fen where the active color is in check
+
     #[test]
-    fn from_fen() {
+    fn from_fen_test() {
         struct TestCase {
             name: &'static str,
             fen: &'static str,
@@ -417,183 +945,38 @@ mod tests {
         let test_cases = vec![
             TestCase {
                 name: "starting position",
-                fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                expected_state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(66),
-                        bitboard::BitBoard(36),
-                        bitboard::BitBoard(8),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(65280),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(4755801206503243776),
-                        bitboard::BitBoard(2594073385365405696),
-                        bitboard::BitBoard(576460752303423488),
-                        bitboard::BitBoard(1152921504606846976),
-                        bitboard::BitBoard(71776119061217280),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(65535),
-                        bitboard::BitBoard(18446462598732840960),
-                        bitboard::BitBoard(18446462598732906495),
-                    ],
-                    castling: Castling::all(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 1,
-                },
+                fen: STARTING_POS_FEN,
+                expected_state: STARTING_BOARD_STATE,
             },
             TestCase {
                 name: "en passant square",
-                fen: "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
-                expected_state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(66),
-                        bitboard::BitBoard(36),
-                        bitboard::BitBoard(8),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(68719537920),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(4755801206503243776),
-                        bitboard::BitBoard(2594073385365405696),
-                        bitboard::BitBoard(576460752303423488),
-                        bitboard::BitBoard(1152921504606846976),
-                        bitboard::BitBoard(69243978142187520),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(68719538175),
-                        bitboard::BitBoard(18443930457813811200),
-                        bitboard::BitBoard(18443930526533349375),
-                    ],
-                    castling: Castling::all(),
-                    en_passant: Some(Square::D6),
-                    half_moves: 0,
-                    full_moves: 3,
-                },
+                fen: EN_PASSANT_FEN,
+                expected_state: EN_PASSANT_BOARD_STATE,
             },
             TestCase {
                 name: "kiwipete",
-                fen: "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
-                expected_state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(68719738880),
-                        bitboard::BitBoard(6144),
-                        bitboard::BitBoard(2097152),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(34628232960),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(37383395344384),
-                        bitboard::BitBoard(18015498021109760),
-                        bitboard::BitBoard(4503599627370496),
-                        bitboard::BitBoard(1152921504606846976),
-                        bitboard::BitBoard(12754334924144640),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(103350075281),
-                        bitboard::BitBoard(10483661951467520000),
-                        bitboard::BitBoard(10483662054817595281),
-                    ],
-                    castling: Castling::all(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 0,
-                },
+                fen: POS_2_KIWIPETE_FEN,
+                expected_state: POS_2_KIWIPETE_BOARD_STATE,
             },
             TestCase {
                 name: "position 3",
-                fen: "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - -",
-                expected_state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(33554432),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(4294967296),
-                        bitboard::BitBoard(8589955072),
-                        bitboard::BitBoard(549755813888),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(2147483648),
-                        bitboard::BitBoard(1134696536735744),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(12918476800),
-                        bitboard::BitBoard(1135248440033280),
-                        bitboard::BitBoard(1135261358510080),
-                    ],
-                    castling: Castling::empty(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 0,
-                },
+                fen: POS_3_FEN,
+                expected_state: POS_3_BOARD_STATE,
             },
             TestCase {
                 name: "position 5",
-                fen: "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
-                expected_state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(4098),
-                        bitboard::BitBoard(67108868),
-                        bitboard::BitBoard(8),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(2251799813736192),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(144115188075864064),
-                        bitboard::BitBoard(292733975779082240),
-                        bitboard::BitBoard(576460752303423488),
-                        bitboard::BitBoard(2305843009213693952),
-                        bitboard::BitBoard(63899217759830016),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(2251799880849311),
-                        bitboard::BitBoard(12678481774024597504),
-                        bitboard::BitBoard(12680733573905446815),
-                    ],
-                    castling: Castling::WHITE_K | Castling::WHITE_Q,
-                    en_passant: None,
-                    half_moves: 1,
-                    full_moves: 8,
-                },
+                fen: POS_5_FEN,
+                expected_state: POS_5_BOARD_STATE,
             },
             TestCase {
                 name: "position 6",
-                fen: "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
-                expected_state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(33),
-                        bitboard::BitBoard(2359296),
-                        bitboard::BitBoard(274945015808),
-                        bitboard::BitBoard(4096),
-                        bitboard::BitBoard(64),
-                        bitboard::BitBoard(269084160),
-                        bitboard::BitBoard(2377900603251621888),
-                        bitboard::BitBoard(39582418599936),
-                        bitboard::BitBoard(18253611008),
-                        bitboard::BitBoard(4503599627370496),
-                        bitboard::BitBoard(4611686018427387904),
-                        bitboard::BitBoard(64749208967577600),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(275216463457),
-                        bitboard::BitBoard(7058879030946168832),
-                        bitboard::BitBoard(7058879306162632289),
-                    ],
-                    castling: Castling::empty(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 10,
-                },
+                fen: POS_6_FEN,
+                expected_state: POS_6_BOARD_STATE,
+            },
+            TestCase {
+                name: "in check position",
+                fen: IN_CHECK_FEN,
+                expected_state: IN_CHECK_BOARD_STATE,
             },
         ];
 
@@ -609,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn fen() {
+    fn fen_test() {
         struct TestCase {
             name: &'static str,
             state: BoardState,
@@ -620,193 +1003,45 @@ mod tests {
         let test_cases = vec![
             TestCase {
                 name: "starting position",
-                state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(66),
-                        bitboard::BitBoard(36),
-                        bitboard::BitBoard(8),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(65280),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(4755801206503243776),
-                        bitboard::BitBoard(2594073385365405696),
-                        bitboard::BitBoard(576460752303423488),
-                        bitboard::BitBoard(1152921504606846976),
-                        bitboard::BitBoard(71776119061217280),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(65535),
-                        bitboard::BitBoard(18446462598732840960),
-                        bitboard::BitBoard(18446462598732906495),
-                    ],
-                    castling: Castling::all(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 1,
-                },
-                expected_fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                state: STARTING_BOARD_STATE,
+                expected_fen: STARTING_POS_FEN,
             },
             TestCase {
                 name: "en passant square",
-                state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(66),
-                        bitboard::BitBoard(36),
-                        bitboard::BitBoard(8),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(68719537920),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(4755801206503243776),
-                        bitboard::BitBoard(2594073385365405696),
-                        bitboard::BitBoard(576460752303423488),
-                        bitboard::BitBoard(1152921504606846976),
-                        bitboard::BitBoard(69243978142187520),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(68719538175),
-                        bitboard::BitBoard(18443930457813811200),
-                        bitboard::BitBoard(18443930526533349375),
-                    ],
-                    castling: Castling::all(),
-                    en_passant: Some(Square::D6),
-                    half_moves: 0,
-                    full_moves: 3,
-                },
-                expected_fen: "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
+                state: EN_PASSANT_BOARD_STATE,
+                expected_fen: EN_PASSANT_FEN,
             },
             TestCase {
                 name: "kiwipete",
-                state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(68719738880),
-                        bitboard::BitBoard(6144),
-                        bitboard::BitBoard(2097152),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(34628232960),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(37383395344384),
-                        bitboard::BitBoard(18015498021109760),
-                        bitboard::BitBoard(4503599627370496),
-                        bitboard::BitBoard(1152921504606846976),
-                        bitboard::BitBoard(12754334924144640),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(103350075281),
-                        bitboard::BitBoard(10483661951467520000),
-                        bitboard::BitBoard(10483662054817595281),
-                    ],
-                    castling: Castling::all(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 0,
-                },
+                state: POS_2_KIWIPETE_BOARD_STATE,
                 expected_fen:
                     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 0",
             },
             TestCase {
                 name: "position 3",
-                state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(33554432),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(4294967296),
-                        bitboard::BitBoard(8589955072),
-                        bitboard::BitBoard(549755813888),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(0),
-                        bitboard::BitBoard(2147483648),
-                        bitboard::BitBoard(1134696536735744),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(12918476800),
-                        bitboard::BitBoard(1135248440033280),
-                        bitboard::BitBoard(1135261358510080),
-                    ],
-                    castling: Castling::empty(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 0,
-                },
+                state: POS_3_BOARD_STATE,
                 expected_fen: "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 0",
             },
             TestCase {
                 name: "position 5",
-                state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(129),
-                        bitboard::BitBoard(4098),
-                        bitboard::BitBoard(67108868),
-                        bitboard::BitBoard(8),
-                        bitboard::BitBoard(16),
-                        bitboard::BitBoard(2251799813736192),
-                        bitboard::BitBoard(9295429630892703744),
-                        bitboard::BitBoard(144115188075864064),
-                        bitboard::BitBoard(292733975779082240),
-                        bitboard::BitBoard(576460752303423488),
-                        bitboard::BitBoard(2305843009213693952),
-                        bitboard::BitBoard(63899217759830016),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(2251799880849311),
-                        bitboard::BitBoard(12678481774024597504),
-                        bitboard::BitBoard(12680733573905446815),
-                    ],
-                    castling: Castling::WHITE_K | Castling::WHITE_Q,
-                    en_passant: None,
-                    half_moves: 1,
-                    full_moves: 8,
-                },
-                expected_fen: "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+                state: POS_5_BOARD_STATE,
+                expected_fen: POS_5_FEN,
             },
             TestCase {
                 name: "position 6",
-                state: BoardState {
-                    turn: Player::White,
-                    piece_bbs: [
-                        bitboard::BitBoard(33),
-                        bitboard::BitBoard(2359296),
-                        bitboard::BitBoard(274945015808),
-                        bitboard::BitBoard(4096),
-                        bitboard::BitBoard(64),
-                        bitboard::BitBoard(269084160),
-                        bitboard::BitBoard(2377900603251621888),
-                        bitboard::BitBoard(39582418599936),
-                        bitboard::BitBoard(18253611008),
-                        bitboard::BitBoard(4503599627370496),
-                        bitboard::BitBoard(4611686018427387904),
-                        bitboard::BitBoard(64749208967577600),
-                    ],
-                    occ_bbs: [
-                        bitboard::BitBoard(275216463457),
-                        bitboard::BitBoard(7058879030946168832),
-                        bitboard::BitBoard(7058879306162632289),
-                    ],
-                    castling: Castling::empty(),
-                    en_passant: None,
-                    half_moves: 0,
-                    full_moves: 10,
-                },
-                expected_fen:
-                    "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+                state: POS_6_BOARD_STATE,
+                expected_fen: POS_6_FEN,
+            },
+            TestCase {
+                name: "in check position",
+                state: IN_CHECK_BOARD_STATE,
+                expected_fen: IN_CHECK_FEN,
             },
         ];
 
         for test_case in test_cases {
             let mut b = Board::new(&l);
             b.state = test_case.state;
-
-            b.print();
 
             assert_eq!(b.fen(), test_case.expected_fen, "{} failed", test_case.name);
         }

@@ -3,7 +3,9 @@
 
 use rust_chess::bitboard;
 use rust_chess::board;
+use rust_chess::core::Player;
 use rust_chess::core::Square;
+use rust_chess::core::IN_CHECK_FEN;
 use rust_chess::lookup_tables;
 
 // // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -45,8 +47,6 @@ fn main() {
     // let b2 = board::Board::start_pos(&l);
     // perft::perft_pp(&b2, 3);
     //
-    let b = board::Board::start_pos(&l);
+    let b = board::Board::from_fen(IN_CHECK_FEN, &l).unwrap();
     b.print();
-    let moves = b.generate_moves();
-    println!("{}: {:?}", moves.len(), moves);
 }

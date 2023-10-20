@@ -43,6 +43,17 @@ pub const RANK_7: u64 = 0x00FF_0000_0000_0000;
 /// Bit representation of rank 8.
 pub const RANK_8: u64 = 0xFF00_0000_0000_0000;
 
+pub const STARTING_POS_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+pub const POS_2_KIWIPETE_FEN: &str =
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -";
+pub const POS_3_FEN: &str = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - -";
+pub const POS_5_FEN: &str = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
+pub const POS_6_FEN: &str =
+    "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10";
+
+pub const EN_PASSANT_FEN: &str = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3";
+pub const IN_CHECK_FEN: &str = "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 3";
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Piece {
