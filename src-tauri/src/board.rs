@@ -65,6 +65,13 @@ impl TryFrom<char> for Castling {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
+pub enum Legality {
+    Legal,
+    PseudoLegal,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 struct BoardState {
     turn: Player,
     piece_bbs: [bitboard::BitBoard; 12],
@@ -76,6 +83,7 @@ struct BoardState {
 
     // State to help with move generation
     checkers: bitboard::BitBoard,
+    attacked_squares: BitBoard,
 }
 
 #[derive(Debug)]
@@ -97,6 +105,7 @@ impl<'a> Board<'a> {
                 half_moves: 0,
                 full_moves: 0,
                 checkers: bitboard::BitBoard::new(),
+                attacked_squares: bitboard::BitBoard::new(),
             },
             previous_states: Vec::new(),
             lookup_tables: l,
@@ -177,13 +186,28 @@ impl<'a> Board<'a> {
             .parse()
             .unwrap_or(0);
 
+        // FIXME: Is there someway I can reuse some of the values calced in these fns
         b.state.checkers = b.get_checkers();
+        b.state.attacked_squares = b.get_attacked_squares();
 
         if let Some(errors) = b.is_valid() {
             return Err(errors.join("\n"));
         }
 
         Ok(b)
+    }
+
+    fn get_attacked_squares(&self) -> BitBoard {
+        match self.state.turn {
+            Player::White => BLACK_PIECES,
+            Player::Black => WHITE_PIECES,
+        }
+        .iter()
+        .fold(BitBoard::new(), |mut bb, p| {
+            let new_moves_bb = self.generate_piece_moves_inner_bb(*p, Legality::PseudoLegal);
+            bb.0 |= new_moves_bb.0;
+            bb
+        })
     }
 
     fn get_checkers(&self) -> BitBoard {
@@ -199,8 +223,9 @@ impl<'a> Board<'a> {
         .iter()
         .fold(BitBoard::new(), |mut x, p| {
             let mut moves: Vec<Move> = Vec::new();
-            self.generate_piece_moves(*p, &mut moves);
+            self.generate_piece_moves(*p, Legality::PseudoLegal, &mut moves);
 
+            // FIXME: There should be someway to do a bitwise op to figure this out.
             for m in moves {
                 if m.1 == king_square {
                     x.set_bit(m.0);
@@ -289,21 +314,7 @@ impl<'a> Board<'a> {
         }
     }
     pub fn generate_moves(&self) -> Vec<Move> {
-        self.generate_moves_for_player(self.state.turn)
-    }
-
-    pub fn generate_moves_for_player(&self, player: Player) -> Vec<Move> {
-        let pieces = match player {
-            Player::White => WHITE_PIECES,
-            Player::Black => BLACK_PIECES,
-        };
-
-        let mut moves = Vec::with_capacity(MAX_MOVES);
-        for p in pieces {
-            self.generate_piece_moves(p, &mut moves);
-        }
-
-        moves
+        self.generate_moves_for_player(self.state.turn, Legality::Legal)
     }
 
     pub fn apply_move(&mut self, m: Move) {
@@ -323,6 +334,10 @@ impl<'a> Board<'a> {
             Player::White => Player::Black,
             Player::Black => Player::White,
         };
+
+        // FIXME: Might be a faster way to do this.
+        self.state.checkers = self.get_checkers();
+        self.state.attacked_squares = self.get_attacked_squares();
     }
 
     pub fn undo_move(&mut self) {
@@ -330,39 +345,113 @@ impl<'a> Board<'a> {
     }
 
     fn get_piece(&self, s: Square) -> Option<Piece> {
-        for p in PIECES {
-            if self.state.piece_bbs[p as usize].get_bit(s) {
-                return Some(p);
-            }
-        }
-        None
+        PIECES
+            .into_iter()
+            .find(|p| self.state.piece_bbs[*p as usize].get_bit(s))
     }
 
-    fn generate_piece_moves(&self, p: Piece, moves: &mut Vec<Move>) {
+    fn generate_moves_for_player(&self, player: Player, legality: Legality) -> Vec<Move> {
+        if self.state.checkers.0 > 0 && legality == Legality::Legal {
+            return self.generate_evasions(player, legality);
+        }
+
+        let pieces = match player {
+            Player::White => WHITE_PIECES,
+            Player::Black => BLACK_PIECES,
+        };
+
+        let mut moves = Vec::with_capacity(MAX_MOVES);
+        for p in pieces {
+            self.generate_piece_moves(p, legality, &mut moves);
+        }
+
+        moves
+    }
+
+    fn generate_evasions(&self, player: Player, legality: Legality) -> Vec<Move> {
+        let king_piece = match player {
+            Player::White => Piece::WhiteKing,
+            Player::Black => Piece::BlackKing,
+        };
+        let mut moves = Vec::with_capacity(MAX_MOVES);
+
+        self.generate_piece_moves(king_piece, legality, &mut moves);
+
+        if self.state.checkers.0.count_ones() == 1 {
+            let pieces = match player {
+                Player::White => WHITE_PIECES,
+                Player::Black => BLACK_PIECES,
+            };
+            let mut checking_ray_bb = self.lookup_tables.lookup_between_squares(
+                self.state.checkers.get_lsb().unwrap(),
+                self.state.piece_bbs[king_piece as usize].get_lsb().unwrap(),
+            );
+            checking_ray_bb.0 |= self.state.checkers.0;
+            for p in pieces {
+                if PieceKind::from(p) != PieceKind::King {
+                    let mut piece_bb = self.state.piece_bbs[p as usize];
+                    while let Some(from) = piece_bb.pop_lsb() {
+                        let mut valid_moves_bb =
+                            self.generate_single_piece_moves_bb(p, from, legality);
+                        valid_moves_bb.0 &= checking_ray_bb.0;
+                        while let Some(to) = valid_moves_bb.pop_lsb() {
+                            moves.push(Move(from, to));
+                        }
+                    }
+                }
+            }
+        }
+
+        moves
+    }
+
+    fn generate_piece_moves(&self, p: Piece, legality: Legality, moves: &mut Vec<Move>) {
         let pk = PieceKind::from(p);
         match pk {
             PieceKind::Knight
-            | PieceKind::King
             | PieceKind::Rook
             | PieceKind::Bishop
-            | PieceKind::Queen => self.generate_piece_moves_inner(p, moves),
+            | PieceKind::Queen
+            | PieceKind::King => self.generate_piece_moves_inner(p, legality, moves),
             PieceKind::Pawn => self.generate_pawn_moves(p, moves),
         }
     }
 
     // FIXME: better name
-    fn generate_piece_moves_inner(&self, p: Piece, moves: &mut Vec<Move>) {
+    fn generate_piece_moves_inner(&self, p: Piece, legality: Legality, moves: &mut Vec<Move>) {
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
-            let move_bb = self
-                .lookup_tables
-                .lookup_moves(p, from, self.state.occ_bbs[2].0);
-            let occ = self.state.occ_bbs[Player::from(p) as usize];
-            let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!occ.0));
+            let mut valid_moves_bb = self.generate_single_piece_moves_bb(p, from, legality);
             while let Some(to) = valid_moves_bb.pop_lsb() {
                 moves.push(Move(from, to));
             }
         }
+    }
+
+    fn generate_piece_moves_inner_bb(&self, p: Piece, legality: Legality) -> BitBoard {
+        let mut moves_bb = BitBoard::new();
+        let mut piece_bb = self.state.piece_bbs[p as usize];
+        while let Some(from) = piece_bb.pop_lsb() {
+            moves_bb.0 |= self.generate_single_piece_moves_bb(p, from, legality).0;
+        }
+        moves_bb
+    }
+
+    fn generate_single_piece_moves_bb(
+        &self,
+        p: Piece,
+        from: Square,
+        legality: Legality,
+    ) -> BitBoard {
+        let move_bb = self
+            .lookup_tables
+            .lookup_moves(p, from, self.state.occ_bbs[2].0);
+        let occ = self.state.occ_bbs[Player::from(p) as usize];
+        let mut valid_moves_bb = bitboard::BitBoard(move_bb.0 & (!occ.0));
+        if legality == Legality::Legal && PieceKind::from(p) == PieceKind::King {
+            valid_moves_bb.0 &= !self.state.attacked_squares.0;
+        }
+        valid_moves_bb
     }
 
     fn generate_pawn_moves(&self, p: Piece, moves: &mut Vec<Move>) {
@@ -412,9 +501,8 @@ impl<'a> Board<'a> {
         }
     }
 
-    fn get_squares_attacked_by(&self, p: Player) -> BitBoard {
-        // FIXME: Need to think about what type of moves
-        self.generate_moves_for_player(p)
+    fn get_squares_attacked(&self, p: Player) -> BitBoard {
+        self.generate_moves_for_player(p, Legality::PseudoLegal)
             .iter()
             .fold(BitBoard::new(), |mut attacked, m| {
                 attacked.set_bit(m.1);
@@ -507,6 +595,10 @@ impl<'a> Board<'a> {
             errors.push("checkers bitboard is not correct".to_string());
         }
 
+        if self.state.attacked_squares != self.get_attacked_squares() {
+            errors.push("attacked squares bitboard is not correct".to_string());
+        }
+
         for p1 in PIECES {
             for p2 in PIECES {
                 if p1 != p2
@@ -578,7 +670,7 @@ impl<'a> Board<'a> {
             Player::White => Piece::BlackKing,
             Player::Black => Piece::WhiteKing,
         };
-        if (self.get_squares_attacked_by(self.state.turn).0
+        if (self.get_squares_attacked(self.state.turn).0
             & self.state.piece_bbs[non_active_king as usize].0)
             > 0
         {
@@ -761,6 +853,7 @@ mod tests {
         half_moves: 0,
         full_moves: 1,
         checkers: bitboard::BitBoard(0),
+        attacked_squares: bitboard::BitBoard(280375465082880),
     };
 
     const EN_PASSANT_BOARD_STATE: BoardState = BoardState {
@@ -789,6 +882,7 @@ mod tests {
         half_moves: 0,
         full_moves: 3,
         checkers: bitboard::BitBoard(0),
+        attacked_squares: bitboard::BitBoard(2812693694119936),
     };
 
     const POS_2_KIWIPETE_BOARD_STATE: BoardState = BoardState {
@@ -817,6 +911,7 @@ mod tests {
         half_moves: 0,
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
+        attacked_squares: bitboard::BitBoard(7963081979829325824),
     };
 
     const POS_3_BOARD_STATE: BoardState = BoardState {
@@ -845,6 +940,7 @@ mod tests {
         half_moves: 0,
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
+        attacked_squares: bitboard::BitBoard(9259546511662907392),
     };
 
     const POS_5_BOARD_STATE: BoardState = BoardState {
@@ -873,6 +969,7 @@ mod tests {
         half_moves: 1,
         full_moves: 8,
         checkers: bitboard::BitBoard(0),
+        attacked_squares: bitboard::BitBoard(5768243907872227464),
     };
 
     const POS_6_BOARD_STATE: BoardState = BoardState {
@@ -901,6 +998,7 @@ mod tests {
         half_moves: 0,
         full_moves: 10,
         checkers: bitboard::BitBoard(0),
+        attacked_squares: bitboard::BitBoard(11387864756522131456),
     };
 
     const IN_CHECK_BOARD_STATE: BoardState = BoardState {
@@ -929,6 +1027,7 @@ mod tests {
         half_moves: 2,
         full_moves: 3,
         checkers: bitboard::BitBoard(33554432),
+        attacked_squares: bitboard::BitBoard(2310609759340136464),
     };
 
     // FIXME: Need to add a fen where the active color is in check

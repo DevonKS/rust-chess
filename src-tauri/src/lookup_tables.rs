@@ -16,6 +16,7 @@ pub struct LookupTables {
     bishop_moves_mask: [bitboard::BitBoard; 64],
     rook_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
     bishop_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
+    between_sqaures_table: FxHashMap<(u8, u8), bitboard::BitBoard>,
 }
 
 impl std::fmt::Debug for LookupTables {
@@ -37,6 +38,7 @@ impl LookupTables {
             bishop_moves_mask,
             rook_moves_table: gen_sliding_moves(&rook_moves_mask, true),
             bishop_moves_table: gen_sliding_moves(&bishop_moves_mask, false),
+            between_sqaures_table: gen_between_squares(),
         }
     }
 
@@ -72,6 +74,10 @@ impl LookupTables {
             }
             _ => panic!("lookup_capture_moves is only supported for Pawns"),
         }
+    }
+
+    pub fn lookup_between_squares(&self, from: Square, to: Square) -> bitboard::BitBoard {
+        self.between_sqaures_table[&(from as u8, to as u8)]
     }
 }
 
@@ -296,4 +302,79 @@ fn gen_sliding_move_mask(s: u8, is_rook: bool) -> bitboard::BitBoard {
     }
 
     moves_bitboard
+}
+
+fn gen_between_squares() -> FxHashMap<(u8, u8), bitboard::BitBoard> {
+    let mut table = FxHashMap::default();
+    for from in SQUARES {
+        for to in SQUARES {
+            let from_file = File::from(from);
+            let from_rank = Rank::from(from);
+            let to_file = File::from(to);
+            let to_rank = Rank::from(to);
+            let same_file = from_file == to_file;
+            let same_rank = from_rank == to_rank;
+            let same_diag =
+                (from_file as i8 - to_file as i8).abs() == (from_rank as i8 - to_rank as i8).abs();
+            if from != to && (same_file || same_rank || same_diag) {
+                table.insert((from as u8, to as u8), gen_between_squares_inner(from, to));
+            }
+        }
+    }
+
+    table
+}
+
+fn gen_between_squares_inner(from: Square, to: Square) -> bitboard::BitBoard {
+    let from_file = File::from(from) as u8;
+    let from_rank = Rank::from(from) as u8;
+    let to_file = File::from(to) as u8;
+    let to_rank = Rank::from(to) as u8;
+
+    let direction: (i8, i8) = if from_file == to_file {
+        if from_file < to_file {
+            (1, 0)
+        } else {
+            (-1, 0)
+        }
+    } else if from_rank == to_rank {
+        if from_rank < to_rank {
+            (0, 1)
+        } else {
+            (0, -1)
+        }
+    } else if from_file < to_file {
+        if from_rank < to_rank {
+            (1, 1)
+        } else {
+            (1, -1)
+        }
+    } else if from_rank < to_rank {
+        (-1, 1)
+    } else {
+        (-1, -1)
+    };
+
+    let mut moves = bitboard::BitBoard::new();
+    let mut current_file = from_file as i8 + 1;
+    let mut current_rank = from_rank as i8 + 1;
+    for _ in 0..8 {
+        current_file += direction.0;
+        current_rank += direction.1;
+
+        if !(1..=8).contains(&current_rank) || !(1..=8).contains(&current_file) {
+            break;
+        }
+
+        if current_file as u8 - 1 == to_file && current_rank as u8 - 1 == to_rank {
+            break;
+        }
+
+        let bit_index =
+            Square::try_from(((current_file - 1) + (current_rank - 1) * 8) as u8).unwrap();
+
+        moves.set_bit(bit_index);
+    }
+
+    moves
 }

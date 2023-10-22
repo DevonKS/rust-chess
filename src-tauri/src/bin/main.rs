@@ -49,4 +49,13 @@ fn main() {
     //
     let b = board::Board::from_fen(IN_CHECK_FEN, &l).unwrap();
     b.print();
+    println!("{:?}", b.generate_moves());
+
+    let b2 = board::Board::from_fen(
+        "rnbqkbnr/2p1p1pp/1p1N4/5p1Q/p3P3/8/PPPP1PPP/RNB1KB1R b KQkq - 0 6",
+        &l,
+    )
+    .unwrap();
+    b2.print();
+    println!("{:?}", b2.generate_moves());
 }
