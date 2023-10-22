@@ -46,7 +46,7 @@ fn main() {
 
     // let b2 = board::Board::start_pos(&l);
     // perft::perft_pp(&b2, 3);
-    //
+
     let b = board::Board::from_fen(IN_CHECK_FEN, &l).unwrap();
     b.print();
     println!("{:?}", b.generate_moves());
@@ -58,4 +58,16 @@ fn main() {
     .unwrap();
     b2.print();
     println!("{:?}", b2.generate_moves());
+
+    let b3 = board::Board::from_fen(
+        "rnbqkbnr/ppp1pppp/3p4/8/Q7/2P5/PP1PPPPP/RNB1KBNR b KQkq - 1 2",
+        &l,
+    )
+    .unwrap();
+    b3.print();
+    println!("{:?}", b3.generate_moves());
+
+    let b4 = board::Board::from_fen("4k3/8/8/8/7q/8/5R2/r2RK3 w - - 0 1", &l).unwrap();
+    b4.print();
+    println!("{:?}", b4.generate_moves());
 }

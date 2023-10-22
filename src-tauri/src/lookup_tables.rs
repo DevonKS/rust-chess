@@ -332,16 +332,16 @@ fn gen_between_squares_inner(from: Square, to: Square) -> bitboard::BitBoard {
     let to_rank = Rank::from(to) as u8;
 
     let direction: (i8, i8) = if from_file == to_file {
-        if from_file < to_file {
-            (1, 0)
-        } else {
-            (-1, 0)
-        }
-    } else if from_rank == to_rank {
         if from_rank < to_rank {
             (0, 1)
         } else {
             (0, -1)
+        }
+    } else if from_rank == to_rank {
+        if from_file < to_file {
+            (1, 0)
+        } else {
+            (-1, 0)
         }
     } else if from_file < to_file {
         if from_rank < to_rank {
