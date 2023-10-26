@@ -286,83 +286,68 @@ impl<'a> Board<'a> {
         self.previous_states.push(self.state);
 
         let moved_piece = self.get_piece(m.0).unwrap();
+        let captured_piece = self.get_piece(m.1);
+        if let Some(p) = captured_piece {
+            self.state.piece_bbs[p as usize].unset_bit(m.1);
+            let captured_color = match self.state.turn {
+                Player::White => Player::Black,
+                Player::Black => Player::White,
+            };
+            self.state.occ_bbs[captured_color as usize].unset_bit(m.1);
+            self.state.occ_bbs[2].unset_bit(m.1);
+        }
+
+        self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
+        self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
+        self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
+        self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
+        self.state.occ_bbs[2].unset_bit(m.0);
+        self.state.occ_bbs[2].set_bit(m.1);
+
         if m.0 == Square::E1 && m.1 == Square::G1 && moved_piece == Piece::WhiteKing {
-            self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
-            self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
             self.state.piece_bbs[Piece::WhiteRook as usize].unset_bit(Square::H1);
             self.state.piece_bbs[Piece::WhiteRook as usize].set_bit(Square::F1);
 
-            self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
-            self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
             self.state.occ_bbs[self.state.turn as usize].unset_bit(Square::H1);
             self.state.occ_bbs[self.state.turn as usize].set_bit(Square::F1);
 
-            self.state.occ_bbs[2].unset_bit(m.0);
-            self.state.occ_bbs[2].set_bit(m.1);
             self.state.occ_bbs[2].unset_bit(Square::H1);
             self.state.occ_bbs[2].set_bit(Square::F1);
             self.state.castling.remove(Castling::WHITE_K);
             self.state.castling.remove(Castling::WHITE_Q);
         } else if m.0 == Square::E1 && m.1 == Square::C1 && moved_piece == Piece::WhiteKing {
-            self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
-            self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
             self.state.piece_bbs[Piece::WhiteRook as usize].unset_bit(Square::A1);
             self.state.piece_bbs[Piece::WhiteRook as usize].set_bit(Square::D1);
 
-            self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
-            self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
             self.state.occ_bbs[self.state.turn as usize].unset_bit(Square::A1);
             self.state.occ_bbs[self.state.turn as usize].set_bit(Square::D1);
 
-            self.state.occ_bbs[2].unset_bit(m.0);
-            self.state.occ_bbs[2].set_bit(m.1);
             self.state.occ_bbs[2].unset_bit(Square::A1);
             self.state.occ_bbs[2].set_bit(Square::D1);
             self.state.castling.remove(Castling::WHITE_K);
             self.state.castling.remove(Castling::WHITE_Q);
         } else if m.0 == Square::E8 && m.1 == Square::G8 && moved_piece == Piece::BlackKing {
-            self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
-            self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
             self.state.piece_bbs[Piece::BlackRook as usize].unset_bit(Square::H8);
             self.state.piece_bbs[Piece::BlackRook as usize].set_bit(Square::F8);
 
-            self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
-            self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
             self.state.occ_bbs[self.state.turn as usize].unset_bit(Square::H8);
             self.state.occ_bbs[self.state.turn as usize].set_bit(Square::F8);
 
-            self.state.occ_bbs[2].unset_bit(m.0);
-            self.state.occ_bbs[2].set_bit(m.1);
             self.state.occ_bbs[2].unset_bit(Square::H8);
             self.state.occ_bbs[2].set_bit(Square::F8);
             self.state.castling.remove(Castling::BLACK_K);
             self.state.castling.remove(Castling::BLACK_Q);
         } else if m.0 == Square::E8 && m.1 == Square::C8 && moved_piece == Piece::BlackKing {
-            self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
-            self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
             self.state.piece_bbs[Piece::BlackRook as usize].unset_bit(Square::A8);
             self.state.piece_bbs[Piece::BlackRook as usize].set_bit(Square::D8);
 
-            self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
-            self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
             self.state.occ_bbs[self.state.turn as usize].unset_bit(Square::A8);
             self.state.occ_bbs[self.state.turn as usize].set_bit(Square::D8);
 
-            self.state.occ_bbs[2].unset_bit(m.0);
-            self.state.occ_bbs[2].set_bit(m.1);
             self.state.occ_bbs[2].unset_bit(Square::A8);
             self.state.occ_bbs[2].set_bit(Square::D8);
             self.state.castling.remove(Castling::BLACK_K);
             self.state.castling.remove(Castling::BLACK_Q);
-        } else {
-            self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
-            self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
-
-            self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
-            self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
-
-            self.state.occ_bbs[2].unset_bit(m.0);
-            self.state.occ_bbs[2].set_bit(m.1);
         }
 
         self.state.turn = match self.state.turn {
@@ -451,7 +436,7 @@ impl<'a> Board<'a> {
         }
         .iter()
         .fold(BitBoard::new(), |mut bb, p| {
-            let new_moves_bb = self.generate_piece_moves_inner_bb(*p, Legality::PseudoLegal);
+            let new_moves_bb = self.generate_piece_moves_inner_bb(*p, Legality::PseudoLegal, true);
             bb.0 |= new_moves_bb.0;
             bb
         })
@@ -473,6 +458,7 @@ impl<'a> Board<'a> {
         };
         let mut pinned_pieces = BitBoard::new();
         for p in pieces {
+            let piece_kind = PieceKind::from(p);
             let mut piece_bb = self.state.piece_bbs[p as usize];
             while let Some(from) = piece_bb.pop_lsb() {
                 let from_file = File::from(from);
@@ -484,7 +470,10 @@ impl<'a> Board<'a> {
                 let same_diag = (from_file as i8 - to_file as i8).abs()
                     == (from_rank as i8 - to_rank as i8).abs();
 
-                if same_file || same_rank || same_diag {
+                if (piece_kind == PieceKind::Bishop && same_diag)
+                    || (piece_kind == PieceKind::Rook && (same_file || same_rank))
+                    || (piece_kind == PieceKind::Queen && (same_file || same_rank || same_diag))
+                {
                     let ray_bb = self.lookup_tables.lookup_between_squares(from, king_square);
 
                     if (ray_bb.0 & self.state.occ_bbs[enemy_turn as usize].0) == 0
@@ -535,32 +524,41 @@ impl<'a> Board<'a> {
         self.generate_piece_moves(king_piece, legality, &mut moves);
 
         if self.state.checkers.0.count_ones() == 1 {
-            let pieces = match player {
-                Player::White => WHITE_PIECES,
-                Player::Black => BLACK_PIECES,
-            };
-            let mut checking_ray_bb = self.lookup_tables.lookup_between_squares(
-                self.state.checkers.get_lsb().unwrap(),
-                self.state.piece_bbs[king_piece as usize].get_lsb().unwrap(),
+            let checking_piece_kind = PieceKind::from(
+                self.get_piece(self.state.checkers.get_lsb().unwrap())
+                    .unwrap(),
             );
-            checking_ray_bb.0 |= self.state.checkers.0;
-            for p in pieces {
-                let piece_kind = PieceKind::from(p);
-                let is_pawn = piece_kind == PieceKind::Pawn;
-                if piece_kind != PieceKind::King {
-                    let mut piece_bb = self.state.piece_bbs[p as usize];
-                    while let Some(from) = piece_bb.pop_lsb() {
-                        // FIXME: This if is gonna be slow cause I'm check on every iteration but I
-                        // know the piece_kind is always the same. I can probably get rid of it by
-                        // restructing the code.
-                        let mut valid_moves_bb = if is_pawn {
-                            self.generate_single_pawn_moves_bb(p, from)
-                        } else {
-                            self.generate_single_piece_moves_bb(p, from, legality)
-                        };
-                        valid_moves_bb.0 &= checking_ray_bb.0;
-                        while let Some(to) = valid_moves_bb.pop_lsb() {
-                            moves.push(Move(from, to));
+            if checking_piece_kind == PieceKind::Queen
+                || checking_piece_kind == PieceKind::Rook
+                || checking_piece_kind == PieceKind::Bishop
+            {
+                let pieces = match player {
+                    Player::White => WHITE_PIECES,
+                    Player::Black => BLACK_PIECES,
+                };
+                let mut checking_ray_bb = self.lookup_tables.lookup_between_squares(
+                    self.state.checkers.get_lsb().unwrap(),
+                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap(),
+                );
+                checking_ray_bb.0 |= self.state.checkers.0;
+                for p in pieces {
+                    let piece_kind = PieceKind::from(p);
+                    let is_pawn = piece_kind == PieceKind::Pawn;
+                    if piece_kind != PieceKind::King {
+                        let mut piece_bb = self.state.piece_bbs[p as usize];
+                        while let Some(from) = piece_bb.pop_lsb() {
+                            // FIXME: This if is gonna be slow cause I'm check on every iteration but I
+                            // know the piece_kind is always the same. I can probably get rid of it by
+                            // restructing the code.
+                            let mut valid_moves_bb = if is_pawn {
+                                self.generate_single_pawn_moves_bb(p, from)
+                            } else {
+                                self.generate_single_piece_moves_bb(p, from, legality, false)
+                            };
+                            valid_moves_bb.0 &= checking_ray_bb.0;
+                            while let Some(to) = valid_moves_bb.pop_lsb() {
+                                moves.push(Move(from, to));
+                            }
                         }
                     }
                 }
@@ -587,7 +585,7 @@ impl<'a> Board<'a> {
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
             // FIXME: I need to do this for the pawn fn too
-            let mut valid_moves_bb = self.generate_single_piece_moves_bb(p, from, legality);
+            let mut valid_moves_bb = self.generate_single_piece_moves_bb(p, from, legality, false);
 
             if self.state.pinned_pieces.get_bit(from) {
                 valid_moves_bb.0 &= self.state.pinned_pieces.0;
@@ -599,11 +597,18 @@ impl<'a> Board<'a> {
         }
     }
 
-    fn generate_piece_moves_inner_bb(&self, p: Piece, legality: Legality) -> BitBoard {
+    fn generate_piece_moves_inner_bb(
+        &self,
+        p: Piece,
+        legality: Legality,
+        can_capture_own: bool,
+    ) -> BitBoard {
         let mut moves_bb = BitBoard::new();
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
-            moves_bb.0 |= self.generate_single_piece_moves_bb(p, from, legality).0;
+            moves_bb.0 |= self
+                .generate_single_piece_moves_bb(p, from, legality, can_capture_own)
+                .0;
         }
         moves_bb
     }
@@ -613,13 +618,16 @@ impl<'a> Board<'a> {
         p: Piece,
         from: Square,
         legality: Legality,
+        can_capture_own: bool,
     ) -> BitBoard {
         let move_bb = self
             .lookup_tables
             .lookup_moves(p, from, self.state.occ_bbs[2].0);
-        let occ = self.state.occ_bbs[Player::from(p) as usize];
-        // FIXME: The king can't take a piece that is defended
-        let mut valid_moves_bb = BitBoard(move_bb.0 & (!occ.0));
+        let mut valid_moves_bb = move_bb;
+        if !can_capture_own {
+            let occ = self.state.occ_bbs[Player::from(p) as usize];
+            valid_moves_bb.0 &= !occ.0;
+        }
         // FIXME: There is already a match on piece type above. It would be nice if we didn't have
         // to do this check.
         if PieceKind::from(p) == PieceKind::King {
@@ -1100,7 +1108,7 @@ mod tests {
         half_moves: 0,
         full_moves: 1,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(280375465082880),
+        attacked_squares: bitboard::BitBoard(9151313343305220096),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
@@ -1130,7 +1138,7 @@ mod tests {
         half_moves: 0,
         full_moves: 3,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(2812693694119936),
+        attacked_squares: bitboard::BitBoard(9151313520615227392),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
@@ -1160,7 +1168,7 @@ mod tests {
         half_moves: 0,
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(7963081979829325824),
+        attacked_squares: bitboard::BitBoard(18427531065113088000),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
@@ -1190,7 +1198,7 @@ mod tests {
         half_moves: 0,
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(9259546511662907392),
+        attacked_squares: bitboard::BitBoard(9259547063566204928),
         pinned_pieces: bitboard::BitBoard(1090921693184),
     };
 
@@ -1220,8 +1228,8 @@ mod tests {
         half_moves: 1,
         full_moves: 8,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(5768243907872227464),
-        pinned_pieces: bitboard::BitBoard(4521260802379776),
+        attacked_squares: bitboard::BitBoard(9151296051004113032),
+        pinned_pieces: bitboard::BitBoard(0),
     };
 
     const POS_6_BOARD_STATE: BoardState = BoardState {
@@ -1250,8 +1258,8 @@ mod tests {
         half_moves: 0,
         full_moves: 10,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(11387864756522131456),
-        pinned_pieces: bitboard::BitBoard(18393096192),
+        attacked_squares: bitboard::BitBoard(18446180820335009792),
+        pinned_pieces: bitboard::BitBoard(17315143680),
     };
 
     const IN_CHECK_BOARD_STATE: BoardState = BoardState {
@@ -1280,11 +1288,9 @@ mod tests {
         half_moves: 2,
         full_moves: 3,
         checkers: bitboard::BitBoard(33554432),
-        attacked_squares: bitboard::BitBoard(2310609759340136464),
+        attacked_squares: bitboard::BitBoard(9133281719829727248),
         pinned_pieces: bitboard::BitBoard(0),
     };
-
-    // FIXME: Need to add a fen where the active color is in check
 
     #[test]
     fn from_fen_test() {

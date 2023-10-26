@@ -77,6 +77,12 @@ impl LookupTables {
     }
 
     pub fn lookup_between_squares(&self, from: Square, to: Square) -> bitboard::BitBoard {
+        if !self
+            .between_sqaures_table
+            .contains_key(&(from as u8, to as u8))
+        {
+            println!("{}, {}", from, to);
+        }
         self.between_sqaures_table[&(from as u8, to as u8)]
     }
 }
