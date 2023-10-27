@@ -551,11 +551,37 @@ impl<'a> Board<'a> {
                             // know the piece_kind is always the same. I can probably get rid of it by
                             // restructing the code.
                             let mut valid_moves_bb = if is_pawn {
-                                self.generate_single_pawn_moves_bb(p, from)
+                                self.generate_single_pawn_moves_bb(p, from, false)
                             } else {
                                 self.generate_single_piece_moves_bb(p, from, legality, false)
                             };
                             valid_moves_bb.0 &= checking_ray_bb.0;
+                            while let Some(to) = valid_moves_bb.pop_lsb() {
+                                moves.push(Move(from, to));
+                            }
+                        }
+                    }
+                }
+            } else {
+                let pieces = match player {
+                    Player::White => WHITE_PIECES,
+                    Player::Black => BLACK_PIECES,
+                };
+                for p in pieces {
+                    let piece_kind = PieceKind::from(p);
+                    let is_pawn = piece_kind == PieceKind::Pawn;
+                    if piece_kind != PieceKind::King {
+                        let mut piece_bb = self.state.piece_bbs[p as usize];
+                        while let Some(from) = piece_bb.pop_lsb() {
+                            // FIXME: This if is gonna be slow cause I'm check on every iteration but I
+                            // know the piece_kind is always the same. I can probably get rid of it by
+                            // restructing the code.
+                            let mut valid_moves_bb = if is_pawn {
+                                self.generate_single_pawn_moves_bb(p, from, false)
+                            } else {
+                                self.generate_single_piece_moves_bb(p, from, legality, false)
+                            };
+                            valid_moves_bb.0 &= self.state.checkers.0;
                             while let Some(to) = valid_moves_bb.pop_lsb() {
                                 moves.push(Move(from, to));
                             }
@@ -601,14 +627,29 @@ impl<'a> Board<'a> {
         &self,
         p: Piece,
         legality: Legality,
-        can_capture_own: bool,
+        is_attacked_gen: bool,
     ) -> BitBoard {
         let mut moves_bb = BitBoard::new();
         let mut piece_bb = self.state.piece_bbs[p as usize];
-        while let Some(from) = piece_bb.pop_lsb() {
-            moves_bb.0 |= self
-                .generate_single_piece_moves_bb(p, from, legality, can_capture_own)
-                .0;
+        match PieceKind::from(p) {
+            PieceKind::Rook
+            | PieceKind::Knight
+            | PieceKind::Bishop
+            | PieceKind::Queen
+            | PieceKind::King => {
+                while let Some(from) = piece_bb.pop_lsb() {
+                    moves_bb.0 |= self
+                        .generate_single_piece_moves_bb(p, from, legality, is_attacked_gen)
+                        .0;
+                }
+            }
+            PieceKind::Pawn => {
+                while let Some(from) = piece_bb.pop_lsb() {
+                    moves_bb.0 |= self
+                        .generate_single_pawn_moves_bb(p, from, is_attacked_gen)
+                        .0;
+                }
+            }
         }
         moves_bb
     }
@@ -618,13 +659,25 @@ impl<'a> Board<'a> {
         p: Piece,
         from: Square,
         legality: Legality,
-        can_capture_own: bool,
+        is_attacked_gen: bool,
     ) -> BitBoard {
-        let move_bb = self
-            .lookup_tables
-            .lookup_moves(p, from, self.state.occ_bbs[2].0);
+        let all_occ = if is_attacked_gen {
+            let mut x = self.state.occ_bbs[2];
+            let opposite_king = match Player::from(p) {
+                Player::White => Piece::BlackKing,
+                Player::Black => Piece::WhiteKing,
+            };
+            let opposite_king_square = self.state.piece_bbs[opposite_king as usize]
+                .get_lsb()
+                .unwrap();
+            x.unset_bit(opposite_king_square);
+            x.0
+        } else {
+            self.state.occ_bbs[2].0
+        };
+        let move_bb = self.lookup_tables.lookup_moves(p, from, all_occ);
         let mut valid_moves_bb = move_bb;
-        if !can_capture_own {
+        if !is_attacked_gen {
             let occ = self.state.occ_bbs[Player::from(p) as usize];
             valid_moves_bb.0 &= !occ.0;
         }
@@ -691,7 +744,7 @@ impl<'a> Board<'a> {
     fn generate_pawn_moves(&self, p: Piece, moves: &mut Vec<Move>) {
         let mut piece_bb = self.state.piece_bbs[p as usize];
         while let Some(from) = piece_bb.pop_lsb() {
-            let mut valid_moves_bb = self.generate_single_pawn_moves_bb(p, from);
+            let mut valid_moves_bb = self.generate_single_pawn_moves_bb(p, from, false);
 
             if self.state.pinned_pieces.get_bit(from) {
                 valid_moves_bb.0 &= self.state.pinned_pieces.0;
@@ -703,43 +756,55 @@ impl<'a> Board<'a> {
         }
     }
 
-    fn generate_single_pawn_moves_bb(&self, p: Piece, from: Square) -> BitBoard {
+    fn generate_single_pawn_moves_bb(
+        &self,
+        p: Piece,
+        from: Square,
+        is_attacked_gen: bool,
+    ) -> BitBoard {
         let is_white = Player::from(p) == Player::White;
-        let move_bb = self
-            .lookup_tables
-            .lookup_moves(p, from, self.state.occ_bbs[2].0);
-        let all_occ = self.state.occ_bbs[2];
-        let mut valid_moves_bb = BitBoard(move_bb.0 & (!all_occ.0));
+        let mut valid_moves_bb = BitBoard::new();
+        if !is_attacked_gen {
+            let move_bb = self
+                .lookup_tables
+                .lookup_moves(p, from, self.state.occ_bbs[2].0);
+            let all_occ = self.state.occ_bbs[2];
+            valid_moves_bb = BitBoard(move_bb.0 & (!all_occ.0));
 
-        let square_index = from as u8;
-        let player = Player::from(p);
-        match player {
-            Player::White => {
-                if (8..=15).contains(&square_index) {
-                    let check_index = square_index + 8;
-                    let move_index = square_index + 16;
-                    let mut check_bb = 1 << check_index;
-                    check_bb |= 1 << move_index;
-                    if all_occ.0 & check_bb == 0 {
-                        valid_moves_bb.set_bit(Square::try_from(move_index).unwrap());
+            let square_index = from as u8;
+            let player = Player::from(p);
+            match player {
+                Player::White => {
+                    if (8..=15).contains(&square_index) {
+                        let check_index = square_index + 8;
+                        let move_index = square_index + 16;
+                        let mut check_bb = 1 << check_index;
+                        check_bb |= 1 << move_index;
+                        if all_occ.0 & check_bb == 0 {
+                            valid_moves_bb.set_bit(Square::try_from(move_index).unwrap());
+                        }
                     }
                 }
-            }
-            Player::Black => {
-                if (48..=55).contains(&square_index) {
-                    let check_index = square_index - 8;
-                    let move_index = square_index - 16;
-                    let mut check_bb = 1 << check_index;
-                    check_bb |= 1 << move_index;
-                    if all_occ.0 & check_bb == 0 {
-                        valid_moves_bb.set_bit(Square::try_from(move_index).unwrap());
+                Player::Black => {
+                    if (48..=55).contains(&square_index) {
+                        let check_index = square_index - 8;
+                        let move_index = square_index - 16;
+                        let mut check_bb = 1 << check_index;
+                        check_bb |= 1 << move_index;
+                        if all_occ.0 & check_bb == 0 {
+                            valid_moves_bb.set_bit(Square::try_from(move_index).unwrap());
+                        }
                     }
                 }
             }
         }
 
         let capture_move_bb = self.lookup_tables.lookup_capture_moves(p, from);
-        let enemy_occ = self.state.occ_bbs[if is_white { 1 } else { 0 }];
+        let enemy_occ = if is_attacked_gen {
+            BitBoard(u64::MAX)
+        } else {
+            self.state.occ_bbs[if is_white { 1 } else { 0 }]
+        };
         let en_passant_bb = if let Some(sq) = self.state.en_passant {
             let mut bb = BitBoard::new();
             bb.set_bit(sq);
@@ -747,6 +812,7 @@ impl<'a> Board<'a> {
         } else {
             BitBoard::new()
         };
+
         valid_moves_bb.0 |= capture_move_bb.0 & (enemy_occ.0 | en_passant_bb.0);
 
         valid_moves_bb
@@ -1138,7 +1204,7 @@ mod tests {
         half_moves: 0,
         full_moves: 3,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(9151313520615227392),
+        attacked_squares: bitboard::BitBoard(9151313525111521280),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
@@ -1168,7 +1234,7 @@ mod tests {
         half_moves: 0,
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(18427531065113088000),
+        attacked_squares: bitboard::BitBoard(18427602327210643456),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
@@ -1198,7 +1264,7 @@ mod tests {
         half_moves: 0,
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(9259547063566204928),
+        attacked_squares: bitboard::BitBoard(9259553660634923008),
         pinned_pieces: bitboard::BitBoard(1090921693184),
     };
 
@@ -1228,7 +1294,7 @@ mod tests {
         half_moves: 1,
         full_moves: 8,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(9151296051004113032),
+        attacked_squares: bitboard::BitBoard(9151313686139830408),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
@@ -1258,7 +1324,7 @@ mod tests {
         half_moves: 0,
         full_moves: 10,
         checkers: bitboard::BitBoard(0),
-        attacked_squares: bitboard::BitBoard(18446180820335009792),
+        attacked_squares: bitboard::BitBoard(18446180846641684480),
         pinned_pieces: bitboard::BitBoard(17315143680),
     };
 
@@ -1288,7 +1354,7 @@ mod tests {
         half_moves: 2,
         full_moves: 3,
         checkers: bitboard::BitBoard(33554432),
-        attacked_squares: bitboard::BitBoard(9133281719829727248),
+        attacked_squares: bitboard::BitBoard(9133299415094986768),
         pinned_pieces: bitboard::BitBoard(0),
     };
 
