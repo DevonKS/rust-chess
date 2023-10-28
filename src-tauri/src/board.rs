@@ -297,8 +297,47 @@ impl<'a> Board<'a> {
             self.state.occ_bbs[2].unset_bit(m.1);
         }
 
+        if Some(m.1) == self.state.en_passant && PieceKind::from(moved_piece) == PieceKind::Pawn {
+            let en_passant_square = self.state.en_passant.unwrap();
+            let en_passant_rank = Rank::from(en_passant_square);
+            if en_passant_rank == Rank::R3 {
+                let capture_square = Square::from((File::from(en_passant_square), Rank::R4));
+                self.state.piece_bbs[Piece::WhitePawn as usize].unset_bit(capture_square);
+                self.state.occ_bbs[Player::White as usize].unset_bit(capture_square);
+                self.state.occ_bbs[2].unset_bit(capture_square);
+            } else if en_passant_rank == Rank::R6 {
+                let capture_square = Square::from((File::from(en_passant_square), Rank::R5));
+                self.state.piece_bbs[Piece::BlackPawn as usize].unset_bit(capture_square);
+                self.state.occ_bbs[Player::Black as usize].unset_bit(capture_square);
+                self.state.occ_bbs[2].unset_bit(capture_square);
+            }
+        }
+
         self.state.piece_bbs[moved_piece as usize].unset_bit(m.0);
-        self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
+        if let Some(promotion_piece_kind) = m.2 {
+            let promotion_piece = match self.state.turn {
+                Player::White => match promotion_piece_kind {
+                    PieceKind::Rook => Piece::WhiteRook,
+                    PieceKind::Knight => Piece::WhiteKnight,
+                    PieceKind::Bishop => Piece::WhiteBishop,
+                    PieceKind::Queen => Piece::WhiteQueen,
+                    PieceKind::King => Piece::WhiteKing,
+                    PieceKind::Pawn => Piece::WhitePawn,
+                },
+                Player::Black => match promotion_piece_kind {
+                    PieceKind::Rook => Piece::BlackRook,
+                    PieceKind::Knight => Piece::BlackKnight,
+                    PieceKind::Bishop => Piece::BlackBishop,
+                    PieceKind::Queen => Piece::BlackQueen,
+                    PieceKind::King => Piece::BlackKing,
+                    PieceKind::Pawn => Piece::BlackPawn,
+                },
+            };
+
+            self.state.piece_bbs[promotion_piece as usize].set_bit(m.1);
+        } else {
+            self.state.piece_bbs[moved_piece as usize].set_bit(m.1);
+        }
         self.state.occ_bbs[self.state.turn as usize].unset_bit(m.0);
         self.state.occ_bbs[self.state.turn as usize].set_bit(m.1);
         self.state.occ_bbs[2].unset_bit(m.0);
@@ -557,7 +596,21 @@ impl<'a> Board<'a> {
                             };
                             valid_moves_bb.0 &= checking_ray_bb.0;
                             while let Some(to) = valid_moves_bb.pop_lsb() {
-                                moves.push(Move(from, to));
+                                let move_rank = Rank::from(to);
+                                if piece_kind == PieceKind::Pawn
+                                    && (move_rank == Rank::R8 || move_rank == Rank::R1)
+                                {
+                                    for pk in [
+                                        PieceKind::Queen,
+                                        PieceKind::Rook,
+                                        PieceKind::Bishop,
+                                        PieceKind::Knight,
+                                    ] {
+                                        moves.push(Move(from, to, Some(pk)));
+                                    }
+                                } else {
+                                    moves.push(Move(from, to, None));
+                                }
                             }
                         }
                     }
@@ -577,13 +630,14 @@ impl<'a> Board<'a> {
                             // know the piece_kind is always the same. I can probably get rid of it by
                             // restructing the code.
                             let mut valid_moves_bb = if is_pawn {
+                                // FIXME: Handle Promotions
                                 self.generate_single_pawn_moves_bb(p, from, false)
                             } else {
                                 self.generate_single_piece_moves_bb(p, from, legality, false)
                             };
                             valid_moves_bb.0 &= self.state.checkers.0;
                             while let Some(to) = valid_moves_bb.pop_lsb() {
-                                moves.push(Move(from, to));
+                                moves.push(Move(from, to, None));
                             }
                         }
                     }
@@ -618,7 +672,7 @@ impl<'a> Board<'a> {
             }
 
             while let Some(to) = valid_moves_bb.pop_lsb() {
-                moves.push(Move(from, to));
+                moves.push(Move(from, to, None));
             }
         }
     }
@@ -695,8 +749,11 @@ impl<'a> Board<'a> {
                         let between_bb = self
                             .lookup_tables
                             .lookup_between_squares(Square::A1, Square::E1);
+                        let check_between_bb = self
+                            .lookup_tables
+                            .lookup_between_squares(Square::B1, Square::F1);
                         if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (between_bb.0 & self.state.attacked_squares.0) == 0
+                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
                         {
                             valid_moves_bb.set_bit(Square::C1)
                         }
@@ -706,8 +763,11 @@ impl<'a> Board<'a> {
                         let between_bb = self
                             .lookup_tables
                             .lookup_between_squares(Square::H1, Square::E1);
+                        let check_between_bb = self
+                            .lookup_tables
+                            .lookup_between_squares(Square::H1, Square::D1);
                         if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (between_bb.0 & self.state.attacked_squares.0) == 0
+                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
                         {
                             valid_moves_bb.set_bit(Square::G1)
                         }
@@ -718,8 +778,11 @@ impl<'a> Board<'a> {
                         let between_bb = self
                             .lookup_tables
                             .lookup_between_squares(Square::A8, Square::E8);
+                        let check_between_bb = self
+                            .lookup_tables
+                            .lookup_between_squares(Square::B8, Square::F8);
                         if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (between_bb.0 & self.state.attacked_squares.0) == 0
+                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
                         {
                             valid_moves_bb.set_bit(Square::C8)
                         }
@@ -729,8 +792,11 @@ impl<'a> Board<'a> {
                         let between_bb = self
                             .lookup_tables
                             .lookup_between_squares(Square::H8, Square::E8);
+                        let check_between_bb = self
+                            .lookup_tables
+                            .lookup_between_squares(Square::H8, Square::D8);
                         if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (between_bb.0 & self.state.attacked_squares.0) == 0
+                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
                         {
                             valid_moves_bb.set_bit(Square::G8)
                         }
@@ -751,7 +817,19 @@ impl<'a> Board<'a> {
             }
 
             while let Some(to) = valid_moves_bb.pop_lsb() {
-                moves.push(Move(from, to));
+                let move_rank = Rank::from(to);
+                if move_rank == Rank::R8 || move_rank == Rank::R1 {
+                    for pk in [
+                        PieceKind::Queen,
+                        PieceKind::Rook,
+                        PieceKind::Bishop,
+                        PieceKind::Knight,
+                    ] {
+                        moves.push(Move(from, to, Some(pk)));
+                    }
+                } else {
+                    moves.push(Move(from, to, None));
+                }
             }
         }
     }
