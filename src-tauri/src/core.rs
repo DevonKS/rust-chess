@@ -193,6 +193,22 @@ impl From<Piece> for PieceKind {
     }
 }
 
+impl TryFrom<&str> for PieceKind {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "r" => Ok(PieceKind::Rook),
+            "n" => Ok(PieceKind::Knight),
+            "b" => Ok(PieceKind::Bishop),
+            "q" => Ok(PieceKind::Queen),
+            "k" => Ok(PieceKind::King),
+            "p" => Ok(PieceKind::Pawn),
+            _ => Err(format!("unknown piece kind: {}", s)),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Player {

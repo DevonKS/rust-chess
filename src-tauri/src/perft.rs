@@ -55,7 +55,6 @@ mod tests {
     use crate::lookup_tables::LookupTables;
 
     #[test]
-    #[ignore]
     fn start_pos_perft() {
         let l = LookupTables::generate();
 
@@ -80,12 +79,19 @@ mod tests {
         assert_eq!(97862, perft(&b, 3));
         assert_eq!(4_085_603, perft(&b, 4));
         assert_eq!(193_690_690, perft(&b, 5));
-        // This one is too slow
-        // assert_eq!(8_031_647_685, perft(&b, 6));
     }
 
     #[test]
     #[ignore]
+    fn pos_2_kiwipete_perft_slow() {
+        let l = LookupTables::generate();
+
+        let b: Board = board::Board::from_fen(core::POS_2_KIWIPETE_FEN, &l).unwrap();
+        // This one is too slow
+        assert_eq!(8_031_647_685, perft(&b, 6));
+    }
+
+    #[test]
     fn pos_3_perft() {
         let l = LookupTables::generate();
 

@@ -17,6 +17,7 @@ pub struct LookupTables {
     rook_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
     bishop_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
     between_sqaures_table: FxHashMap<(u8, u8), bitboard::BitBoard>,
+    line_table: [[bitboard::BitBoard; 64]; 64],
 }
 
 impl std::fmt::Debug for LookupTables {
@@ -29,6 +30,9 @@ impl LookupTables {
     pub fn generate() -> Self {
         let rook_moves_mask = gen_sliding_moves_mask(true);
         let bishop_moves_mask = gen_sliding_moves_mask(false);
+        let rook_moves_table = gen_sliding_moves(&rook_moves_mask, true);
+        let bishop_moves_table = gen_sliding_moves(&bishop_moves_mask, false);
+        let line_table = gen_lines(&rook_moves_table, &bishop_moves_table);
         Self {
             knight_moves_table: gen_knight_moves(),
             pawn_moves_table: gen_pawn_moves(),
@@ -36,9 +40,10 @@ impl LookupTables {
             king_moves_table: gen_king_moves(),
             rook_moves_mask,
             bishop_moves_mask,
-            rook_moves_table: gen_sliding_moves(&rook_moves_mask, true),
-            bishop_moves_table: gen_sliding_moves(&bishop_moves_mask, false),
+            rook_moves_table,
+            bishop_moves_table,
             between_sqaures_table: gen_between_squares(),
+            line_table,
         }
     }
 
@@ -77,13 +82,11 @@ impl LookupTables {
     }
 
     pub fn lookup_between_squares(&self, from: Square, to: Square) -> bitboard::BitBoard {
-        if !self
-            .between_sqaures_table
-            .contains_key(&(from as u8, to as u8))
-        {
-            println!("{}, {}", from, to);
-        }
         self.between_sqaures_table[&(from as u8, to as u8)]
+    }
+
+    pub fn lookup_line(&self, from: Square, to: Square) -> bitboard::BitBoard {
+        self.line_table[from as usize][to as usize]
     }
 }
 
@@ -383,4 +386,36 @@ fn gen_between_squares_inner(from: Square, to: Square) -> bitboard::BitBoard {
     }
 
     moves
+}
+
+fn gen_lines(
+    rook_moves_table: &FxHashMap<(u8, u64), bitboard::BitBoard>,
+    bishop_moves_table: &FxHashMap<(u8, u64), bitboard::BitBoard>,
+) -> [[bitboard::BitBoard; 64]; 64] {
+    let mut lines = [[bitboard::BitBoard::new(); 64]; 64];
+    for from in SQUARES {
+        for to in SQUARES {
+            let from_file = File::from(from);
+            let from_rank = Rank::from(from);
+            let to_file = File::from(to);
+            let to_rank = Rank::from(to);
+            let same_file = from_file == to_file;
+            let same_rank = from_rank == to_rank;
+            let same_diag =
+                (from_file as i8 - to_file as i8).abs() == (from_rank as i8 - to_rank as i8).abs();
+
+            if same_rank || same_file {
+                lines[from as usize][to as usize] = bitboard::BitBoard(
+                    rook_moves_table.get(&(from as u8, 0)).unwrap().0
+                        & rook_moves_table.get(&(to as u8, 0)).unwrap().0,
+                );
+            } else if same_diag {
+                lines[from as usize][to as usize] = bitboard::BitBoard(
+                    bishop_moves_table.get(&(from as u8, 0)).unwrap().0
+                        & bishop_moves_table.get(&(to as u8, 0)).unwrap().0,
+                );
+            }
+        }
+    }
+    lines
 }

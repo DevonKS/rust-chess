@@ -7,7 +7,7 @@ use crate::core::{
 };
 use crate::lookup_tables;
 
-use bitflags::bitflags;
+use bitflags::{bitflags, Flags};
 use regex::Regex;
 
 bitflags! {
@@ -295,6 +295,22 @@ impl<'a> Board<'a> {
             };
             self.state.occ_bbs[captured_color as usize].unset_bit(m.1);
             self.state.occ_bbs[2].unset_bit(m.1);
+
+            if !self.state.castling.is_empty() {
+                if p == Piece::WhiteRook {
+                    match m.1 {
+                        Square::A1 => self.state.castling.remove(Castling::WHITE_Q),
+                        Square::H1 => self.state.castling.remove(Castling::WHITE_K),
+                        _ => (),
+                    };
+                } else if p == Piece::BlackRook {
+                    match m.1 {
+                        Square::A8 => self.state.castling.remove(Castling::BLACK_Q),
+                        Square::H8 => self.state.castling.remove(Castling::BLACK_K),
+                        _ => (),
+                    };
+                }
+            }
         }
 
         if Some(m.1) == self.state.en_passant && PieceKind::from(moved_piece) == PieceKind::Pawn {
@@ -461,9 +477,9 @@ impl<'a> Board<'a> {
             for m in moves {
                 if m.1 == king_square {
                     x.set_bit(m.0);
-                    break;
                 }
             }
+
             x
         })
     }
@@ -519,8 +535,8 @@ impl<'a> Board<'a> {
                         && (ray_bb.0 & self.state.occ_bbs[self.state.turn as usize].0).count_ones()
                             == 1
                     {
-                        pinned_pieces.0 |= ray_bb.0;
-                        pinned_pieces.set_bit(from);
+                        pinned_pieces.0 |=
+                            ray_bb.0 & self.state.occ_bbs[self.state.turn as usize].0;
                     }
                 }
             }
@@ -595,6 +611,17 @@ impl<'a> Board<'a> {
                                 self.generate_single_piece_moves_bb(p, from, legality, false)
                             };
                             valid_moves_bb.0 &= checking_ray_bb.0;
+
+                            if self.state.pinned_pieces.get_bit(from) {
+                                let king_piece = match self.state.turn {
+                                    Player::White => Piece::WhiteKing,
+                                    Player::Black => Piece::BlackKing,
+                                };
+                                let king_sq =
+                                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
+                                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
+                            }
+
                             while let Some(to) = valid_moves_bb.pop_lsb() {
                                 let move_rank = Rank::from(to);
                                 if piece_kind == PieceKind::Pawn
@@ -636,6 +663,17 @@ impl<'a> Board<'a> {
                                 self.generate_single_piece_moves_bb(p, from, legality, false)
                             };
                             valid_moves_bb.0 &= self.state.checkers.0;
+
+                            if self.state.pinned_pieces.get_bit(from) {
+                                let king_piece = match self.state.turn {
+                                    Player::White => Piece::WhiteKing,
+                                    Player::Black => Piece::BlackKing,
+                                };
+                                let king_sq =
+                                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
+                                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
+                            }
+
                             while let Some(to) = valid_moves_bb.pop_lsb() {
                                 moves.push(Move(from, to, None));
                             }
@@ -668,7 +706,12 @@ impl<'a> Board<'a> {
             let mut valid_moves_bb = self.generate_single_piece_moves_bb(p, from, legality, false);
 
             if self.state.pinned_pieces.get_bit(from) {
-                valid_moves_bb.0 &= self.state.pinned_pieces.0;
+                let king_piece = match self.state.turn {
+                    Player::White => Piece::WhiteKing,
+                    Player::Black => Piece::BlackKing,
+                };
+                let king_sq = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
+                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
             }
 
             while let Some(to) = valid_moves_bb.pop_lsb() {
@@ -813,7 +856,12 @@ impl<'a> Board<'a> {
             let mut valid_moves_bb = self.generate_single_pawn_moves_bb(p, from, false);
 
             if self.state.pinned_pieces.get_bit(from) {
-                valid_moves_bb.0 &= self.state.pinned_pieces.0;
+                let king_piece = match self.state.turn {
+                    Player::White => Piece::WhiteKing,
+                    Player::Black => Piece::BlackKing,
+                };
+                let king_sq = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
+                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
             }
 
             while let Some(to) = valid_moves_bb.pop_lsb() {

@@ -3,7 +3,7 @@
 
 use std::env;
 
-use rust_chess::core::{Move, Square};
+use rust_chess::core::{Move, PieceKind, Square};
 use rust_chess::lookup_tables;
 use rust_chess::{board, perft};
 
@@ -67,21 +67,23 @@ fn main() {
     // b7.print();
     // println!("{:?}", b7.generate_moves());
 
-    // perftree(&l);
+    perftree(&l);
 
-    let mut b = board::Board::from_fen(
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ",
-        &l,
-    )
-    .unwrap();
-
-    b.apply_move(Move(Square::D2, Square::H6, None));
-    b.apply_move(Move(Square::E8, Square::F8, None));
-    b.apply_move(Move(Square::F3, Square::F6, None));
-
-    b.print();
-    println!("{:?}", b.generate_moves());
-    println!("{:?}", b.is_valid());
+    // let mut b = board::Board::from_fen(
+    //     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ",
+    //     &l,
+    // )
+    // .unwrap();
+    //
+    // b.apply_move(Move(Square::D5, Square::E6, None));
+    // b.apply_move(Move(Square::E8, Square::F8, None));
+    // b.apply_move(Move(Square::E6, Square::F7, None));
+    // b.apply_move(Move(Square::F6, Square::E8, None));
+    // b.apply_move(Move(Square::F7, Square::E8, Some(PieceKind::Queen)));
+    //
+    // b.print();
+    // println!("{:?}", b.generate_moves());
+    // println!("{:?}", b.is_valid());
 }
 
 fn perftree(l: &lookup_tables::LookupTables) {
@@ -103,12 +105,18 @@ fn perftree(l: &lookup_tables::LookupTables) {
 
     if let Some(moves) = args.get(3) {
         for m in moves.split(' ') {
-            if m.len() != 4 {
-                panic!("Promotions are not supported");
+            if m.len() == 4 {
+                let source = Square::try_from(&m[0..2]).unwrap();
+                let dest = Square::try_from(&m[2..]).unwrap();
+                b.apply_move(Move(source, dest, None));
+            } else if m.len() == 5 {
+                let source = Square::try_from(&m[0..2]).unwrap();
+                let dest = Square::try_from(&m[2..4]).unwrap();
+                let promotion = Some(PieceKind::try_from(&m[4..]).expect("cannot parse move"));
+                b.apply_move(Move(source, dest, promotion));
+            } else {
+                panic!("invalid move");
             }
-            let source = Square::try_from(&m[0..2]).unwrap();
-            let dest = Square::try_from(&m[2..]).unwrap();
-            b.apply_move(Move(source, dest, None));
         }
     }
 
