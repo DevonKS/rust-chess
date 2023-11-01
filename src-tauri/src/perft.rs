@@ -106,7 +106,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn pos_4_perft() {
         let l = LookupTables::generate();
 
@@ -121,7 +120,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn pos_4_mirrored_perft() {
         let l = LookupTables::generate();
 
@@ -136,7 +134,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn pos_5_perft() {
         let l = LookupTables::generate();
 
@@ -150,7 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn pos_6_perft() {
         let l = LookupTables::generate();
 
@@ -161,7 +157,14 @@ mod tests {
         assert_eq!(89_890, perft(&b, 3));
         assert_eq!(3_894_594, perft(&b, 4));
         assert_eq!(164_075_551, perft(&b, 5));
-        // This one is too slow
-        // assert_eq!(6_923_051_137, perft(&b, 6));
+    }
+
+    #[test]
+    #[ignore]
+    fn pos_6_perft_slow() {
+        let l = LookupTables::generate();
+
+        let b: Board = board::Board::from_fen(core::POS_6_FEN, &l).unwrap();
+        assert_eq!(6_923_051_137, perft(&b, 6));
     }
 }

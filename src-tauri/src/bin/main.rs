@@ -23,67 +23,7 @@ use rust_chess::{board, perft};
 fn main() {
     let l = lookup_tables::LookupTables::generate();
 
-    // let b = board::Board::from_fen(IN_CHECK_FEN, &l).unwrap();
-    // b.print();
-    // println!("{:?}", b.generate_moves());
-    //
-    // let b2 = board::Board::from_fen(
-    //     "rnbqkbnr/2p1p1pp/1p1N4/5p1Q/p3P3/8/PPPP1PPP/RNB1KB1R b KQkq - 0 6",
-    //     &l,
-    // )
-    // .unwrap();
-    // b2.print();
-    // println!("{:?}", b2.generate_moves());
-    //
-    // let b3 = board::Board::from_fen(
-    //     "rnbqkbnr/ppp1pppp/3p4/8/Q7/2P5/PP1PPPPP/RNB1KBNR b KQkq - 1 2",
-    //     &l,
-    // )
-    // .unwrap();
-    // b3.print();
-    // println!("{:?}", b3.generate_moves());
-    //
-    // let b4 = board::Board::from_fen("4k3/8/8/8/7q/8/5R2/r2RK3 w - - 0 1", &l).unwrap();
-    // b4.print();
-    // println!("{:?}", b4.generate_moves());
-    //
-    // let b5 = board::Board::from_fen(
-    //     "rnbqkb1r/pppppppp/8/8/6n1/P4N2/1PPPPPPP/RNBQKB1R w KQkq - 1 3",
-    //     &l,
-    // )
-    // .unwrap();
-    // b5.print();
-    // println!("{:?}", b5.generate_moves());
-    //
-    // let b6 = board::Board::from_fen("4k3/8/8/8/7q/8/5P2/r2RK3 w - - 0 1", &l).unwrap();
-    // b6.print();
-    // println!("{:?}", b6.generate_moves());
-    //
-    // let b7 = board::Board::from_fen(
-    //     "r1bqkbnr/1ppp1Qpp/p1n5/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4",
-    //     &l,
-    // )
-    // .unwrap();
-    // b7.print();
-    // println!("{:?}", b7.generate_moves());
-
     perftree(&l);
-
-    // let mut b = board::Board::from_fen(
-    //     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ",
-    //     &l,
-    // )
-    // .unwrap();
-    //
-    // b.apply_move(Move(Square::D5, Square::E6, None));
-    // b.apply_move(Move(Square::E8, Square::F8, None));
-    // b.apply_move(Move(Square::E6, Square::F7, None));
-    // b.apply_move(Move(Square::F6, Square::E8, None));
-    // b.apply_move(Move(Square::F7, Square::E8, Some(PieceKind::Queen)));
-    //
-    // b.print();
-    // println!("{:?}", b.generate_moves());
-    // println!("{:?}", b.is_valid());
 }
 
 fn perftree(l: &lookup_tables::LookupTables) {

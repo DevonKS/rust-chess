@@ -7,7 +7,7 @@ use crate::core::{
 };
 use crate::lookup_tables;
 
-use bitflags::{bitflags, Flags};
+use bitflags::bitflags;
 use regex::Regex;
 
 bitflags! {
@@ -657,12 +657,32 @@ impl<'a> Board<'a> {
                             // know the piece_kind is always the same. I can probably get rid of it by
                             // restructing the code.
                             let mut valid_moves_bb = if is_pawn {
-                                // FIXME: Handle Promotions
-                                self.generate_single_pawn_moves_bb(p, from, false)
+                                let mut bb = self.generate_single_pawn_moves_bb(p, from, false);
+                                let mut moves_bb = BitBoard::new();
+                                while let Some(s) = bb.pop_lsb() {
+                                    if Some(s) == self.state.en_passant {
+                                        let en_passant_square = self.state.en_passant.unwrap();
+                                        let en_passant_rank = Rank::from(en_passant_square);
+                                        let cap_square = if en_passant_rank == Rank::R3 {
+                                            Square::from((File::from(en_passant_square), Rank::R4))
+                                        } else {
+                                            Square::from((File::from(en_passant_square), Rank::R5))
+                                        };
+
+                                        if self.state.checkers.get_bit(cap_square) {
+                                            moves_bb.set_bit(s);
+                                        }
+                                    } else if self.state.checkers.get_bit(s) {
+                                        moves_bb.set_bit(s);
+                                    }
+                                }
+                                moves_bb
                             } else {
-                                self.generate_single_piece_moves_bb(p, from, legality, false)
+                                let mut bb =
+                                    self.generate_single_piece_moves_bb(p, from, legality, false);
+                                bb.0 &= self.state.checkers.0;
+                                bb
                             };
-                            valid_moves_bb.0 &= self.state.checkers.0;
 
                             if self.state.pinned_pieces.get_bit(from) {
                                 let king_piece = match self.state.turn {
@@ -675,7 +695,21 @@ impl<'a> Board<'a> {
                             }
 
                             while let Some(to) = valid_moves_bb.pop_lsb() {
-                                moves.push(Move(from, to, None));
+                                let move_rank = Rank::from(to);
+                                if piece_kind == PieceKind::Pawn
+                                    && (move_rank == Rank::R8 || move_rank == Rank::R1)
+                                {
+                                    for pk in [
+                                        PieceKind::Queen,
+                                        PieceKind::Rook,
+                                        PieceKind::Bishop,
+                                        PieceKind::Knight,
+                                    ] {
+                                        moves.push(Move(from, to, Some(pk)));
+                                    }
+                                } else {
+                                    moves.push(Move(from, to, None));
+                                }
                             }
                         }
                     }
@@ -705,7 +739,7 @@ impl<'a> Board<'a> {
             // FIXME: I need to do this for the pawn fn too
             let mut valid_moves_bb = self.generate_single_piece_moves_bb(p, from, legality, false);
 
-            if self.state.pinned_pieces.get_bit(from) {
+            if legality == Legality::Legal && self.state.pinned_pieces.get_bit(from) {
                 let king_piece = match self.state.turn {
                     Player::White => Piece::WhiteKing,
                     Player::Black => Piece::BlackKing,
@@ -874,6 +908,34 @@ impl<'a> Board<'a> {
                         PieceKind::Knight,
                     ] {
                         moves.push(Move(from, to, Some(pk)));
+                    }
+                } else if Some(to) == self.state.en_passant {
+                    let mut new_all_occ = self.state.occ_bbs[2];
+                    new_all_occ.unset_bit(from);
+                    if move_rank == Rank::R3 {
+                        new_all_occ.unset_bit(Square::from((File::from(to), Rank::R4)));
+                    } else {
+                        new_all_occ.unset_bit(Square::from((File::from(to), Rank::R5)));
+                    }
+                    new_all_occ.set_bit(to);
+                    let mut attacks: u64 = 0;
+                    let pieces = match self.state.turn {
+                        Player::White => [Piece::BlackRook, Piece::BlackBishop, Piece::BlackQueen],
+                        Player::Black => [Piece::WhiteRook, Piece::WhiteBishop, Piece::WhiteQueen],
+                    };
+                    for p in pieces {
+                        let mut pbb = self.state.piece_bbs[p as usize];
+                        while let Some(s) = pbb.pop_lsb() {
+                            attacks |= self.lookup_tables.lookup_moves(p, s, new_all_occ.0).0;
+                        }
+                    }
+
+                    let king_piece = match self.state.turn {
+                        Player::White => Piece::WhiteKing,
+                        Player::Black => Piece::BlackKing,
+                    };
+                    if attacks & self.state.piece_bbs[king_piece as usize].0 == 0 {
+                        moves.push(Move(from, to, None));
                     }
                 } else {
                     moves.push(Move(from, to, None));
@@ -1391,7 +1453,7 @@ mod tests {
         full_moves: 0,
         checkers: bitboard::BitBoard(0),
         attacked_squares: bitboard::BitBoard(9259553660634923008),
-        pinned_pieces: bitboard::BitBoard(1090921693184),
+        pinned_pieces: bitboard::BitBoard(8589934592),
     };
 
     const POS_5_BOARD_STATE: BoardState = BoardState {
@@ -1451,7 +1513,7 @@ mod tests {
         full_moves: 10,
         checkers: bitboard::BitBoard(0),
         attacked_squares: bitboard::BitBoard(18446180846641684480),
-        pinned_pieces: bitboard::BitBoard(17315143680),
+        pinned_pieces: bitboard::BitBoard(8192),
     };
 
     const IN_CHECK_BOARD_STATE: BoardState = BoardState {
