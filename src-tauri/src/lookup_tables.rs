@@ -1,8 +1,8 @@
 use crate::bitboard;
 use crate::core;
-use crate::core::SQUARES;
 use crate::core::{
-    File, Piece, PieceKind, Rank, Square, NOT_AB_FILE, NOT_A_FILE, NOT_GH_FILE, NOT_H_FILE,
+    File, Piece, PieceKind, Player, Rank, Square, NOT_AB_FILE, NOT_A_FILE, NOT_GH_FILE, NOT_H_FILE,
+    PLAYERS, SQUARES,
 };
 
 use rustc_hash::FxHashMap;
@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 pub struct LookupTables {
     knight_moves_table: [bitboard::BitBoard; 64],
     pawn_captures_table: [[bitboard::BitBoard; 64]; 2],
-    pawn_moves_table: [[bitboard::BitBoard; 64]; 2],
+    pawn_moves_table: FxHashMap<(u8, bool, Player), bitboard::BitBoard>,
     king_moves_table: [bitboard::BitBoard; 64],
     rook_moves_mask: [bitboard::BitBoard; 64],
     bishop_moves_mask: [bitboard::BitBoard; 64],
@@ -72,7 +72,17 @@ impl LookupTables {
             }
             PieceKind::King => self.king_moves_table[s as usize],
             PieceKind::Pawn => {
-                self.pawn_moves_table[if p == Piece::WhitePawn { 0 } else { 1 }][s as usize]
+                let mut can_double = false;
+                let file = File::from(s);
+                let rank = Rank::from(s);
+                let player = Player::from(p);
+                if rank == Rank::R2 && player == Player::White {
+                    can_double = !all_occupancy.get_bit(Square::from((file, Rank::R3)));
+                } else if rank == Rank::R7 && player == Player::Black {
+                    can_double = !all_occupancy.get_bit(Square::from((file, Rank::R6)));
+                }
+
+                self.pawn_moves_table[&(s as u8, can_double, player)]
             }
         }
     }
@@ -117,30 +127,41 @@ fn gen_knight_move(s: u64) -> bitboard::BitBoard {
     bitboard::BitBoard(moves)
 }
 
-fn gen_pawn_moves() -> [[bitboard::BitBoard; 64]; 2] {
-    let mut white_moves = Vec::with_capacity(64);
-    let mut black_moves = Vec::with_capacity(64);
+fn gen_pawn_moves() -> FxHashMap<(u8, bool, Player), bitboard::BitBoard> {
+    let mut moves = FxHashMap::default();
     for s in SQUARES {
-        white_moves.push(gen_pawn_move(s as u64, true));
-        black_moves.push(gen_pawn_move(s as u64, false));
+        for can_double in [true, false] {
+            for player in PLAYERS {
+                moves.insert(
+                    (s as u8, can_double, player),
+                    gen_pawn_move(s as u64, can_double, player == Player::White),
+                );
+            }
+        }
     }
-    [
-        white_moves.try_into().unwrap(),
-        black_moves.try_into().unwrap(),
-    ]
+
+    moves
 }
 
-fn gen_pawn_move(s: u64, is_white: bool) -> bitboard::BitBoard {
+fn gen_pawn_move(s: u64, is_white: bool, can_double: bool) -> bitboard::BitBoard {
     if is_white {
         let bb = 1 << s;
         let mut moves = 0;
         moves |= bb << 8;
+
+        if can_double {
+            moves |= bb << 16;
+        }
 
         bitboard::BitBoard(moves)
     } else {
         let bb = 1 << s;
         let mut moves = 0;
         moves |= bb >> 8;
+
+        if can_double {
+            moves |= bb >> 16;
+        }
 
         bitboard::BitBoard(moves)
     }

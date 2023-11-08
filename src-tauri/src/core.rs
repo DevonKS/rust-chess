@@ -209,7 +209,7 @@ impl TryFrom<&str> for PieceKind {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Player {
     White,
@@ -271,6 +271,8 @@ impl From<Piece> for Player {
         }
     }
 }
+
+pub const PLAYERS: [Player; 2] = [Player::White, Player::Black];
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Move(pub Square, pub Square, pub Option<PieceKind>);

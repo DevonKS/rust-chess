@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign},
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not},
 };
 
 use crate::core::{Square, FILES, RANKS};
@@ -121,6 +121,15 @@ macro_rules! impl_bit_ops {
 }
 
 impl_bit_ops!(BitBoard, u64);
+
+// FIXME: Can I add this to the macros?
+impl Not for BitBoard {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self(!self.0)
+    }
+}
 
 impl fmt::Display for BitBoard {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

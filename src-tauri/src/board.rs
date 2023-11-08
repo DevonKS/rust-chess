@@ -273,6 +273,175 @@ impl<'a> Board<'a> {
         self.generate_moves_for_player(self.state.turn, Legality::Legal)
     }
 
+    pub fn generate_moves_2(&self, legality: Legality) -> Vec<Move> {
+        // FIXME: Handle in check move gen
+        let mut moves = Vec::new();
+
+        let enemy_player = match self.state.turn {
+            Player::White => Player::Black,
+            Player::Black => Player::White,
+        };
+
+        let king_piece = match self.state.turn {
+            Player::White => Piece::WhiteKing,
+            Player::Black => Piece::BlackKing,
+        };
+        let king_sq = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
+
+        for p in match self.state.turn {
+            Player::White => WHITE_PIECES,
+            Player::Black => BLACK_PIECES,
+        }
+        .iter()
+        {
+            let piece_kind = PieceKind::from(*p);
+
+            match piece_kind {
+                PieceKind::Queen | PieceKind::Rook | PieceKind::Bishop | PieceKind::Knight => {
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let mut moves_bb =
+                            self.lookup_tables
+                                .lookup_moves(*p, from, self.state.occ_bbs[2]);
+                        moves_bb &= !self.state.occ_bbs[self.state.turn as usize];
+                        if self.state.pinned_pieces.get_bit(from) && legality == Legality::Legal {
+                            moves_bb &= self.lookup_tables.lookup_line(from, king_sq);
+                        }
+
+                        for to in moves_bb {
+                            moves.push(Move(from, to, None));
+                        }
+                    }
+                }
+                PieceKind::King => {
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let mut moves_bb =
+                            self.lookup_tables
+                                .lookup_moves(*p, from, self.state.occ_bbs[2]);
+                        moves_bb &= !self.state.occ_bbs[self.state.turn as usize];
+                        if legality == Legality::Legal {
+                            moves_bb &= !self.state.attacked_squares;
+                        }
+
+                        // FIXME: Can I avoid this match or clean up the code?
+                        let castling_infos = match self.state.turn {
+                            Player::White => [
+                                (
+                                    Castling::WHITE_Q,
+                                    (Square::A1, Square::E1),
+                                    (Square::B1, Square::F1),
+                                    Square::C1,
+                                ),
+                                (
+                                    Castling::WHITE_K,
+                                    (Square::H1, Square::E1),
+                                    (Square::H1, Square::D1),
+                                    Square::G1,
+                                ),
+                            ],
+                            Player::Black => [
+                                (
+                                    Castling::BLACK_Q,
+                                    (Square::A8, Square::E8),
+                                    (Square::B8, Square::F8),
+                                    Square::C8,
+                                ),
+                                (
+                                    Castling::BLACK_K,
+                                    (Square::H8, Square::E8),
+                                    (Square::H8, Square::D8),
+                                    Square::G8,
+                                ),
+                            ],
+                        };
+
+                        for info in castling_infos {
+                            if self.state.castling.contains(info.0) {
+                                let between_bb = self
+                                    .lookup_tables
+                                    .lookup_between_squares(info.1 .0, info.1 .1);
+                                let check_between_bb = self
+                                    .lookup_tables
+                                    .lookup_between_squares(info.2 .0, info.2 .1);
+                                if (between_bb.0 & self.state.occ_bbs[2].0) == 0
+                                    && (check_between_bb.0 & self.state.attacked_squares.0) == 0
+                                {
+                                    moves_bb.set_bit(info.3);
+                                }
+                            }
+                        }
+
+                        for to in moves_bb {
+                            moves.push(Move(from, to, None));
+                        }
+                    }
+                }
+                PieceKind::Pawn => {
+                    let mut enemy_occ = self.state.occ_bbs[enemy_player as usize];
+                    if let Some(sq) = self.state.en_passant {
+                        enemy_occ.set_bit(sq);
+                    }
+
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let mut moves_bb =
+                            self.lookup_tables
+                                .lookup_moves(*p, from, self.state.occ_bbs[2]);
+                        moves_bb &= !self.state.occ_bbs[self.state.turn as usize];
+                        moves_bb |= self.lookup_tables.lookup_capture_moves(*p, from) & enemy_occ;
+                        if self.state.pinned_pieces.get_bit(from) && legality == Legality::Legal {
+                            moves_bb &= self.lookup_tables.lookup_line(from, king_sq);
+                        }
+                        for to in moves_bb {
+                            let move_rank = Rank::from(to);
+                            if Some(to) == self.state.en_passant && legality == Legality::Legal {
+                                let mut new_all_occ = self.state.occ_bbs[2];
+                                new_all_occ.unset_bit(from);
+                                if move_rank == Rank::R3 {
+                                    new_all_occ.unset_bit(Square::from((File::from(to), Rank::R4)));
+                                } else {
+                                    new_all_occ.unset_bit(Square::from((File::from(to), Rank::R5)));
+                                }
+                                new_all_occ.set_bit(to);
+                                let mut attacks = BitBoard::new();
+                                let pieces = match self.state.turn {
+                                    Player::White => {
+                                        [Piece::BlackRook, Piece::BlackBishop, Piece::BlackQueen]
+                                    }
+                                    Player::Black => {
+                                        [Piece::WhiteRook, Piece::WhiteBishop, Piece::WhiteQueen]
+                                    }
+                                };
+                                for p in pieces {
+                                    for s in self.state.piece_bbs[p as usize] {
+                                        attacks |=
+                                            self.lookup_tables.lookup_moves(p, s, new_all_occ);
+                                    }
+                                }
+
+                                if (attacks & self.state.piece_bbs[king_piece as usize]).is_empty()
+                                {
+                                    moves.push(Move(from, to, None));
+                                }
+                            } else if move_rank == Rank::R1 || move_rank == Rank::R8 {
+                                for pk in [
+                                    PieceKind::Queen,
+                                    PieceKind::Rook,
+                                    PieceKind::Bishop,
+                                    PieceKind::Knight,
+                                ] {
+                                    moves.push(Move(from, to, Some(pk)));
+                                }
+                            } else {
+                                moves.push(Move(from, to, None));
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        moves
+    }
+
     pub fn apply_move(&mut self, m: Move) {
         self.previous_states.push(self.state);
 
@@ -1029,23 +1198,23 @@ impl<'a> Board<'a> {
         }
 
         // Internal state validation
-        if self.state.occ_bbs[Player::White as usize].0
-            != WHITE_PIECES
-                .iter()
-                .fold(0_u64, |bb, p| bb | self.state.piece_bbs[*p as usize].0)
+        if self.state.occ_bbs[Player::White as usize]
+            != WHITE_PIECES.iter().fold(BitBoard::new(), |bb, p| {
+                bb | self.state.piece_bbs[*p as usize]
+            })
         {
             errors.push("white occupancy bitboard doesn't match piece bitboards".to_string());
         }
 
-        if self.state.occ_bbs[Player::Black as usize].0
-            != BLACK_PIECES
-                .iter()
-                .fold(0_u64, |bb, p| bb | self.state.piece_bbs[*p as usize].0)
+        if self.state.occ_bbs[Player::Black as usize]
+            != BLACK_PIECES.iter().fold(BitBoard::new(), |bb, p| {
+                bb | self.state.piece_bbs[*p as usize]
+            })
         {
             errors.push("black occupancy bitboard doesn't match piece bitboards".to_string());
         }
 
-        if self.state.occ_bbs[2].0 != (self.state.occ_bbs[0].0 | self.state.occ_bbs[1].0) {
+        if self.state.occ_bbs[2] != (self.state.occ_bbs[0] | self.state.occ_bbs[1]) {
             errors.push(
                 "all occupancy bitboard doesn't match player occupancy bitboards".to_string(),
             );
@@ -1068,8 +1237,8 @@ impl<'a> Board<'a> {
         for p1 in PIECES {
             for p2 in PIECES {
                 if p1 != p2
-                    && (self.state.piece_bbs[p1 as usize].0 & self.state.piece_bbs[p2 as usize].0)
-                        > 0
+                    && !(self.state.piece_bbs[p1 as usize] & self.state.piece_bbs[p2 as usize])
+                        .is_empty()
                 {
                     errors.push(format!("{} and {} are on the same square", p1, p2));
                 }
@@ -1097,7 +1266,7 @@ impl<'a> Board<'a> {
             errors.push("Kings are too close together".to_string());
         }
 
-        let num_checks = self.state.checkers.0.count_ones();
+        let num_checks = self.state.checkers.pop_count();
         if num_checks > 2 {
             errors.push(format!(
                 "Only 2 checkers are possible. {} found.",
@@ -1144,19 +1313,19 @@ impl<'a> Board<'a> {
             errors.push("non active color is in check".to_string());
         }
 
-        if (self.state.piece_bbs[Piece::WhitePawn as usize].0 & RANK_1) > 0 {
+        if !(self.state.piece_bbs[Piece::WhitePawn as usize] & RANK_1).is_empty() {
             errors.push("cannot have white pawns on rank 1".to_string())
         }
 
-        if (self.state.piece_bbs[Piece::WhitePawn as usize].0 & RANK_8) > 0 {
+        if !(self.state.piece_bbs[Piece::WhitePawn as usize] & RANK_8).is_empty() {
             errors.push("cannot have white pawns on rank 8".to_string())
         }
 
-        if (self.state.piece_bbs[Piece::BlackPawn as usize].0 & RANK_1) > 0 {
+        if !(self.state.piece_bbs[Piece::BlackPawn as usize] & RANK_1).is_empty() {
             errors.push("cannot have black pawns on rank 1".to_string())
         }
 
-        if (self.state.piece_bbs[Piece::BlackPawn as usize].0 & RANK_8) > 0 {
+        if !(self.state.piece_bbs[Piece::BlackPawn as usize] & RANK_8).is_empty() {
             errors.push("cannot have black pawns on rank 8".to_string())
         }
 
