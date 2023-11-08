@@ -188,10 +188,10 @@ impl<'a> Board<'a> {
             .parse()
             .unwrap_or(0);
 
-        // FIXME: Is there someway I can reuse some of the values calced in these fns
-        b.state.checkers = b.get_checkers();
-        b.state.attacked_squares = b.get_attacked_squares();
-        b.state.pinned_pieces = b.get_pinned_pieces();
+        let (checkers, attacked_squares, pinned_pieces) = b.get_check_info();
+        b.state.checkers = checkers;
+        b.state.attacked_squares = attacked_squares;
+        b.state.pinned_pieces = pinned_pieces;
 
         if let Some(errors) = b.is_valid() {
             return Err(errors.join("\n"));
@@ -266,15 +266,6 @@ impl<'a> Board<'a> {
             state: self.state,
             previous_states: Vec::new(),
             lookup_tables: self.lookup_tables,
-        }
-    }
-
-    pub fn print_bbs(&self) {
-        for pbb in self.state.piece_bbs {
-            pbb.print();
-        }
-        for pbb in self.state.occ_bbs {
-            pbb.print();
         }
     }
 
@@ -448,101 +439,105 @@ impl<'a> Board<'a> {
             }
         }
 
-        // FIXME: Might be a faster way to do this.
-        self.state.checkers = self.get_checkers();
-        self.state.attacked_squares = self.get_attacked_squares();
-        self.state.pinned_pieces = self.get_pinned_pieces();
+        let (checkers, attacked_squares, pinned_pieces) = self.get_check_info();
+        self.state.checkers = checkers;
+        self.state.attacked_squares = attacked_squares;
+        self.state.pinned_pieces = pinned_pieces;
     }
 
     pub fn undo_move(&mut self) {
         self.state = self.previous_states.pop().unwrap();
     }
 
-    fn get_checkers(&self) -> BitBoard {
-        let king_piece = match self.state.turn {
-            Player::White => Piece::WhiteKing,
-            Player::Black => Piece::BlackKing,
-        };
-        let king_square = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
-        match self.state.turn {
-            Player::White => BLACK_PIECES,
-            Player::Black => WHITE_PIECES,
-        }
-        .iter()
-        .fold(BitBoard::new(), |mut x, p| {
-            let mut moves: Vec<Move> = Vec::new();
-            self.generate_piece_moves(*p, Legality::PseudoLegal, &mut moves);
-
-            // FIXME: There should be someway to do a bitwise op to figure this out.
-            for m in moves {
-                if m.1 == king_square {
-                    x.set_bit(m.0);
-                }
-            }
-
-            x
-        })
+    fn get_check_info(&self) -> (BitBoard, BitBoard, BitBoard) {
+        self.get_check_info_for_player(self.state.turn)
     }
 
-    fn get_attacked_squares(&self) -> BitBoard {
-        match self.state.turn {
-            Player::White => BLACK_PIECES,
-            Player::Black => WHITE_PIECES,
-        }
-        .iter()
-        .fold(BitBoard::new(), |mut bb, p| {
-            let new_moves_bb = self.generate_piece_moves_inner_bb(*p, Legality::PseudoLegal, true);
-            bb.0 |= new_moves_bb.0;
-            bb
-        })
-    }
-
-    fn get_pinned_pieces(&self) -> BitBoard {
-        let pieces = match self.state.turn {
-            Player::White => [Piece::BlackQueen, Piece::BlackRook, Piece::BlackBishop],
-            Player::Black => [Piece::WhiteQueen, Piece::WhiteRook, Piece::WhiteBishop],
-        };
-        let king_piece = match self.state.turn {
-            Player::White => Piece::WhiteKing,
-            Player::Black => Piece::BlackKing,
-        };
-        let king_square = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
-        let enemy_turn = match self.state.turn {
-            Player::White => Player::Black,
-            Player::Black => Player::White,
-        };
+    fn get_check_info_for_player(&self, player: Player) -> (BitBoard, BitBoard, BitBoard) {
+        let mut checkers = BitBoard::new();
+        let mut attacked_squares = BitBoard::new();
         let mut pinned_pieces = BitBoard::new();
-        for p in pieces {
-            let piece_kind = PieceKind::from(p);
-            let mut piece_bb = self.state.piece_bbs[p as usize];
-            while let Some(from) = piece_bb.pop_lsb() {
-                let from_file = File::from(from);
-                let from_rank = Rank::from(from);
-                let to_file = File::from(king_square);
-                let to_rank = Rank::from(king_square);
-                let same_file = from_file == to_file;
-                let same_rank = from_rank == to_rank;
-                let same_diag = (from_file as i8 - to_file as i8).abs()
-                    == (from_rank as i8 - to_rank as i8).abs();
 
-                if (piece_kind == PieceKind::Bishop && same_diag)
-                    || (piece_kind == PieceKind::Rook && (same_file || same_rank))
-                    || (piece_kind == PieceKind::Queen && (same_file || same_rank || same_diag))
-                {
-                    let ray_bb = self.lookup_tables.lookup_between_squares(from, king_square);
+        let king_piece = match player {
+            Player::White => Piece::WhiteKing,
+            Player::Black => Piece::BlackKing,
+        };
+        let king_bb = self.state.piece_bbs[king_piece as usize];
+        let king_square = king_bb.get_lsb().unwrap();
 
-                    if (ray_bb.0 & self.state.occ_bbs[enemy_turn as usize].0) == 0
-                        && (ray_bb.0 & self.state.occ_bbs[self.state.turn as usize].0).count_ones()
-                            == 1
-                    {
-                        pinned_pieces.0 |=
-                            ray_bb.0 & self.state.occ_bbs[self.state.turn as usize].0;
+        let mut all_occ = self.state.occ_bbs[2];
+        all_occ.unset_bit(king_square);
+
+        for p in match player {
+            Player::White => BLACK_PIECES,
+            Player::Black => WHITE_PIECES,
+        }
+        .iter()
+        {
+            let piece_kind = PieceKind::from(*p);
+
+            match piece_kind {
+                PieceKind::Queen | PieceKind::Rook | PieceKind::Bishop => {
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let moves = self.lookup_tables.lookup_moves(*p, from, all_occ);
+                        attacked_squares |= moves;
+                        if !(moves & king_bb).is_empty() {
+                            checkers.set_bit(from);
+                        }
+
+                        let from_file = File::from(from);
+                        let from_rank = Rank::from(from);
+                        let to_file = File::from(king_square);
+                        let to_rank = Rank::from(king_square);
+                        let same_file = from_file == to_file;
+                        let same_rank = from_rank == to_rank;
+                        let same_diag = (from_file as i8 - to_file as i8).abs()
+                            == (from_rank as i8 - to_rank as i8).abs();
+
+                        if (piece_kind == PieceKind::Bishop && same_diag)
+                            || (piece_kind == PieceKind::Rook && (same_file || same_rank))
+                            || (piece_kind == PieceKind::Queen
+                                && (same_file || same_rank || same_diag))
+                        {
+                            let ray_bb =
+                                self.lookup_tables.lookup_between_squares(from, king_square);
+
+                            if (ray_bb & self.state.occ_bbs[2]).pop_count() == 1
+                                && !(ray_bb & self.state.occ_bbs[player as usize]).is_empty()
+                            {
+                                pinned_pieces.0 |= ray_bb.0 & self.state.occ_bbs[player as usize].0;
+                            }
+                        }
                     }
                 }
-            }
+                PieceKind::Knight => {
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let moves = self.lookup_tables.lookup_moves(*p, from, all_occ);
+                        attacked_squares |= moves;
+                        if !(moves & king_bb).is_empty() {
+                            checkers.set_bit(from);
+                        }
+                    }
+                }
+                PieceKind::King => {
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let moves = self.lookup_tables.lookup_moves(*p, from, all_occ);
+                        attacked_squares |= moves;
+                    }
+                }
+                PieceKind::Pawn => {
+                    for from in self.state.piece_bbs[*p as usize] {
+                        let moves = self.lookup_tables.lookup_capture_moves(*p, from);
+                        attacked_squares |= moves;
+                        if !(moves & king_bb).is_empty() {
+                            checkers.set_bit(from);
+                        }
+                    }
+                }
+            };
         }
 
-        pinned_pieces
+        (checkers, attacked_squares, pinned_pieces)
     }
 
     fn get_piece(&self, s: Square) -> Option<Piece> {
@@ -754,37 +749,6 @@ impl<'a> Board<'a> {
         }
     }
 
-    fn generate_piece_moves_inner_bb(
-        &self,
-        p: Piece,
-        legality: Legality,
-        is_attacked_gen: bool,
-    ) -> BitBoard {
-        let mut moves_bb = BitBoard::new();
-        let mut piece_bb = self.state.piece_bbs[p as usize];
-        match PieceKind::from(p) {
-            PieceKind::Rook
-            | PieceKind::Knight
-            | PieceKind::Bishop
-            | PieceKind::Queen
-            | PieceKind::King => {
-                while let Some(from) = piece_bb.pop_lsb() {
-                    moves_bb.0 |= self
-                        .generate_single_piece_moves_bb(p, from, legality, is_attacked_gen)
-                        .0;
-                }
-            }
-            PieceKind::Pawn => {
-                while let Some(from) = piece_bb.pop_lsb() {
-                    moves_bb.0 |= self
-                        .generate_single_pawn_moves_bb(p, from, is_attacked_gen)
-                        .0;
-                }
-            }
-        }
-        moves_bb
-    }
-
     fn generate_single_piece_moves_bb(
         &self,
         p: Piece,
@@ -802,9 +766,9 @@ impl<'a> Board<'a> {
                 .get_lsb()
                 .unwrap();
             x.unset_bit(opposite_king_square);
-            x.0
+            x
         } else {
-            self.state.occ_bbs[2].0
+            self.state.occ_bbs[2]
         };
         let move_bb = self.lookup_tables.lookup_moves(p, from, all_occ);
         let mut valid_moves_bb = move_bb;
@@ -926,7 +890,7 @@ impl<'a> Board<'a> {
                     for p in pieces {
                         let mut pbb = self.state.piece_bbs[p as usize];
                         while let Some(s) = pbb.pop_lsb() {
-                            attacks |= self.lookup_tables.lookup_moves(p, s, new_all_occ.0).0;
+                            attacks |= self.lookup_tables.lookup_moves(p, s, new_all_occ).0;
                         }
                     }
 
@@ -955,7 +919,7 @@ impl<'a> Board<'a> {
         if !is_attacked_gen {
             let move_bb = self
                 .lookup_tables
-                .lookup_moves(p, from, self.state.occ_bbs[2].0);
+                .lookup_moves(p, from, self.state.occ_bbs[2]);
             let all_occ = self.state.occ_bbs[2];
             valid_moves_bb = BitBoard(move_bb.0 & (!all_occ.0));
 
@@ -1006,17 +970,8 @@ impl<'a> Board<'a> {
         valid_moves_bb
     }
 
-    fn get_squares_attacked(&self, p: Player) -> BitBoard {
-        self.generate_moves_for_player(p, Legality::PseudoLegal)
-            .iter()
-            .fold(BitBoard::new(), |mut attacked, m| {
-                attacked.set_bit(m.1);
-                attacked
-            })
-    }
-
-    fn count_piece(&self, p: Piece) -> u8 {
-        self.state.piece_bbs[p as usize].0.count_ones() as u8
+    fn count_piece(&self, p: Piece) -> u32 {
+        self.state.piece_bbs[p as usize].pop_count()
     }
 
     // FIXME: Is it strange that this is an option? Is just the vector enough cause it will be
@@ -1096,15 +1051,17 @@ impl<'a> Board<'a> {
             );
         }
 
-        if self.state.checkers != self.get_checkers() {
+        let (checkers, attacked_squares, pinned_pieces) = self.get_check_info();
+
+        if self.state.checkers != checkers {
             errors.push("checkers bitboard is not correct".to_string());
         }
 
-        if self.state.attacked_squares != self.get_attacked_squares() {
+        if self.state.attacked_squares != attacked_squares {
             errors.push("attacked squares bitboard is not correct".to_string());
         }
 
-        if self.state.pinned_pieces != self.get_pinned_pieces() {
+        if self.state.pinned_pieces != pinned_pieces {
             errors.push("pinned pieces bitboard is not correct".to_string());
         }
 
@@ -1179,10 +1136,11 @@ impl<'a> Board<'a> {
             Player::White => Piece::BlackKing,
             Player::Black => Piece::WhiteKing,
         };
-        if (self.get_squares_attacked(self.state.turn).0
-            & self.state.piece_bbs[non_active_king as usize].0)
-            > 0
-        {
+        let (_, attacked_square, _) = self.get_check_info_for_player(match self.state.turn {
+            Player::White => Player::Black,
+            Player::Black => Player::White,
+        });
+        if !(attacked_square & self.state.piece_bbs[non_active_king as usize]).is_empty() {
             errors.push("non active color is in check".to_string());
         }
 
@@ -1302,11 +1260,14 @@ impl<'a> Board<'a> {
             Some(errors)
         }
     }
+}
 
-    pub fn print(&self) {
-        println!();
+impl<'a> fmt::Display for Board<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut s = String::new();
+        s.push('\n');
         for rank in RANKS.iter().rev() {
-            print!("{}    ", rank);
+            s.push_str(&format!("{}    ", rank));
             for file in FILES {
                 let square = Square::from((file, *rank));
                 let piece = self.get_piece(square);
@@ -1314,13 +1275,15 @@ impl<'a> Board<'a> {
                     Some(p) => p.to_string(),
                     None => ".".to_string(),
                 };
-                print!(" {} ", piece_repr);
+                s.push_str(&format!(" {} ", piece_repr));
             }
-            println!();
+            s.push('\n');
         }
-        println!();
-        println!("      a  b  c  d  e  f  g  h");
-        println!();
+        s.push('\n');
+        s.push_str("      a  b  c  d  e  f  g  h");
+        s.push('\n');
+
+        f.pad(&s)
     }
 }
 
@@ -1595,6 +1558,10 @@ mod tests {
 
         for test_case in test_cases {
             let b = Board::from_fen(test_case.fen, &l).unwrap();
+
+            if test_case.name == "position 5" {
+                println!("{}\n{}", b, b.state.pinned_pieces);
+            }
 
             assert_eq!(
                 b.state, test_case.expected_state,

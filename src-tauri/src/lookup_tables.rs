@@ -47,23 +47,28 @@ impl LookupTables {
         }
     }
 
-    pub fn lookup_moves(&self, p: Piece, s: Square, all_occupancy: u64) -> bitboard::BitBoard {
+    pub fn lookup_moves(
+        &self,
+        p: Piece,
+        s: Square,
+        all_occupancy: bitboard::BitBoard,
+    ) -> bitboard::BitBoard {
         match PieceKind::from(p) {
             PieceKind::Rook => {
-                let blockers_key = all_occupancy & self.rook_moves_mask[s as usize].0;
-                self.rook_moves_table[&(s as u8, blockers_key)]
+                let blockers_key = all_occupancy & self.rook_moves_mask[s as usize];
+                self.rook_moves_table[&(s as u8, blockers_key.0)]
             }
             PieceKind::Knight => self.knight_moves_table[s as usize],
             PieceKind::Bishop => {
-                let blockers_key = all_occupancy & self.bishop_moves_mask[s as usize].0;
-                self.bishop_moves_table[&(s as u8, blockers_key)]
+                let blockers_key = all_occupancy & self.bishop_moves_mask[s as usize];
+                self.bishop_moves_table[&(s as u8, blockers_key.0)]
             }
             PieceKind::Queen => {
-                let rook_blockers_key = all_occupancy & self.rook_moves_mask[s as usize].0;
-                let rook_moves = self.rook_moves_table[&(s as u8, rook_blockers_key)];
-                let bishop_blockers_key = all_occupancy & self.bishop_moves_mask[s as usize].0;
-                let bishop_moves = self.bishop_moves_table[&(s as u8, bishop_blockers_key)];
-                bitboard::BitBoard(rook_moves.0 | bishop_moves.0)
+                let rook_blockers_key = all_occupancy & self.rook_moves_mask[s as usize];
+                let rook_moves = self.rook_moves_table[&(s as u8, rook_blockers_key.0)];
+                let bishop_blockers_key = all_occupancy & self.bishop_moves_mask[s as usize];
+                let bishop_moves = self.bishop_moves_table[&(s as u8, bishop_blockers_key.0)];
+                rook_moves | bishop_moves
             }
             PieceKind::King => self.king_moves_table[s as usize],
             PieceKind::Pawn => {
@@ -327,6 +332,8 @@ fn gen_between_squares() -> FxHashMap<(u8, u8), bitboard::BitBoard> {
                 (from_file as i8 - to_file as i8).abs() == (from_rank as i8 - to_rank as i8).abs();
             if from != to && (same_file || same_rank || same_diag) {
                 table.insert((from as u8, to as u8), gen_between_squares_inner(from, to));
+            } else {
+                table.insert((from as u8, to as u8), bitboard::BitBoard::new());
             }
         }
     }

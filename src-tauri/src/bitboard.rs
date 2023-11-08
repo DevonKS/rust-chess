@@ -1,3 +1,8 @@
+use std::{
+    fmt,
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign},
+};
+
 use crate::core::{Square, FILES, RANKS};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -11,6 +16,7 @@ impl Default for BitBoard {
 }
 
 impl BitBoard {
+    #[inline(always)]
     pub fn new() -> Self {
         Self(0)
     }
@@ -51,9 +57,7 @@ impl BitBoard {
         if self.is_empty() {
             None
         } else {
-            // FIXME: I could probably implement a from_u8 fn but since I'm going to do this a lot
-            // I'm doing this under the assumption that this will be much faster.
-            Some(unsafe { std::mem::transmute::<u8, Square>(self.0.trailing_zeros() as u8) })
+            Some(Square::try_from(self.0.trailing_zeros() as u8).unwrap())
         }
     }
 
@@ -62,27 +66,92 @@ impl BitBoard {
         if self.is_empty() {
             None
         } else {
-            // FIXME: I could probably implement a from_u8 fn but since I'm going to do this a lot
-            // I'm doing this under the assumption that this will be much faster.
-            Some(unsafe { std::mem::transmute::<u8, Square>(63 - self.0.leading_zeros() as u8) })
+            Some(Square::try_from(63 - self.0.leading_zeros() as u8).unwrap())
         }
     }
 
-    pub fn print(&self) {
-        println!();
+    #[inline(always)]
+    pub fn pop_count(&self) -> u32 {
+        self.0.count_ones()
+    }
+}
+
+macro_rules! impl_indv_bit_ops {
+    ($t:ty, $b:ty, $tname:ident, $fname:ident, $ta_name:ident, $fa_name:ident) => {
+        impl $tname for $t {
+            type Output = $t;
+
+            #[inline(always)]
+            fn $fname(self, rhs: $t) -> $t {
+                Self(self.0.$fname(rhs.0))
+            }
+        }
+
+        impl $ta_name for $t {
+            #[inline(always)]
+            fn $fa_name(&mut self, rhs: $t) {
+                self.0.$fa_name(rhs.0);
+            }
+        }
+
+        impl $tname<$b> for $t {
+            type Output = $t;
+
+            #[inline(always)]
+            fn $fname(self, rhs: $b) -> $t {
+                Self(self.0.$fname(rhs))
+            }
+        }
+
+        impl $ta_name<$b> for $t {
+            #[inline(always)]
+            fn $fa_name(&mut self, rhs: $b) {
+                self.0.$fa_name(rhs);
+            }
+        }
+    };
+}
+
+macro_rules! impl_bit_ops {
+    ($t:ty, $b:ty) => {
+        impl_indv_bit_ops!($t, $b, BitAnd, bitand, BitAndAssign, bitand_assign);
+        impl_indv_bit_ops!($t, $b, BitOr, bitor, BitOrAssign, bitor_assign);
+        impl_indv_bit_ops!($t, $b, BitXor, bitxor, BitXorAssign, bitxor_assign);
+    };
+}
+
+impl_bit_ops!(BitBoard, u64);
+
+impl fmt::Display for BitBoard {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut s = String::new();
+        s.push('\n');
         for rank in RANKS.iter().rev() {
-            print!("{}    ", rank);
+            s.push_str(&format!("{}    ", rank));
             for file in FILES {
                 let square = Square::from((file, *rank));
                 let bit = if self.get_bit(square) { "1" } else { "0" };
-                print!(" {} ", bit);
+                s.push_str(&format!(" {} ", bit));
             }
-            println!();
+            s.push('\n');
         }
-        println!();
-        println!("      a  b  c  d  e  f  g  h");
-        println!();
-        println!("{:#066b}", self.0);
-        println!();
+        s.push('\n');
+        s.push_str("      a  b  c  d  e  f  g  h");
+        s.push('\n');
+
+        f.pad(&s)
+    }
+}
+
+impl Iterator for BitBoard {
+    type Item = Square;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_empty() {
+            None
+        } else {
+            self.pop_lsb()
+        }
     }
 }
