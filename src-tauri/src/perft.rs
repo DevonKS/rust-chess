@@ -23,7 +23,7 @@ pub fn perft(b: &board::Board, depth: u8) -> u64 {
 }
 
 fn inner_perft(b: &mut board::Board, depth: u8, print_results: bool) -> u64 {
-    let moves = b.generate_moves();
+    let moves = b.generate_moves(board::Legality::Legal);
 
     let mut count = 0;
 

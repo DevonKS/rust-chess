@@ -23,6 +23,15 @@ use rust_chess::{board, perft};
 fn main() {
     let l = lookup_tables::LookupTables::generate();
 
+    // let mut b = board::Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - ", &l).unwrap();
+    // b.apply_move(Move(Square::B4, Square::A4, None));
+    // b.apply_move(Move(Square::D6, Square::D5, None));
+    // b.apply_move(Move(Square::A5, Square::B4, None));
+    // b.apply_move(Move(Square::C7, Square::C5, None));
+    //
+    // b.generate_moves_2(board::Legality::Legal);
+    // println!("{:?}", b.is_valid());
+
     perftree(&l);
 }
 

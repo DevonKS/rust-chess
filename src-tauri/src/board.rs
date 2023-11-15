@@ -269,14 +269,93 @@ impl<'a> Board<'a> {
         }
     }
 
-    pub fn generate_moves(&self) -> Vec<Move> {
-        self.generate_moves_for_player(self.state.turn, Legality::Legal)
+    pub fn generate_moves(&self, legality: Legality) -> Vec<Move> {
+        if self.state.checkers.count() > 0 {
+            self.generate_evasions(legality)
+        } else {
+            self.generate_non_evasions(legality)
+        }
     }
 
-    pub fn generate_moves_2(&self, legality: Legality) -> Vec<Move> {
-        // FIXME: Handle in check move gen
-        let mut moves = Vec::new();
+    fn generate_evasions(&self, legality: Legality) -> Vec<Move> {
+        let mut moves = Vec::with_capacity(MAX_MOVES);
 
+        let king_piece = match self.state.turn {
+            Player::White => Piece::WhiteKing,
+            Player::Black => Piece::BlackKing,
+        };
+
+        // Generate King moves
+        self.generate_king_moves(
+            king_piece,
+            legality,
+            &mut moves,
+            !self.state.occ_bbs[self.state.turn as usize],
+        );
+
+        if self.state.checkers.count() == 1 {
+            let pieces = match self.state.turn {
+                Player::White => [
+                    Piece::WhiteRook,
+                    Piece::WhiteKnight,
+                    Piece::WhiteBishop,
+                    Piece::WhiteQueen,
+                    Piece::WhitePawn,
+                ],
+                Player::Black => [
+                    Piece::BlackRook,
+                    Piece::BlackKnight,
+                    Piece::BlackBishop,
+                    Piece::BlackQueen,
+                    Piece::BlackPawn,
+                ],
+            };
+
+            let checking_piece_kind = PieceKind::from(
+                self.get_piece(self.state.checkers.get_lsb().unwrap())
+                    .unwrap(),
+            );
+            let move_mask = if checking_piece_kind == PieceKind::Queen
+                || checking_piece_kind == PieceKind::Rook
+                || checking_piece_kind == PieceKind::Bishop
+            {
+                let mut move_mask = self.lookup_tables.lookup_between_squares(
+                    self.state.checkers.get_lsb().unwrap(),
+                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap(),
+                );
+                move_mask |= self.state.checkers;
+                move_mask
+            } else {
+                self.state.checkers
+            };
+
+            self.generate_pieces_moves(&pieces, legality, &mut moves, move_mask);
+        }
+
+        moves
+    }
+
+    fn generate_non_evasions(&self, legality: Legality) -> Vec<Move> {
+        let mut moves = Vec::with_capacity(MAX_MOVES);
+
+        let pieces = match self.state.turn {
+            Player::White => WHITE_PIECES,
+            Player::Black => BLACK_PIECES,
+        };
+
+        let move_mask = !self.state.occ_bbs[self.state.turn as usize];
+        self.generate_pieces_moves(&pieces, legality, &mut moves, move_mask);
+
+        moves
+    }
+
+    fn generate_pieces_moves(
+        &self,
+        pieces: &[Piece],
+        legality: Legality,
+        moves: &mut Vec<Move>,
+        move_mask: BitBoard,
+    ) {
         let enemy_player = match self.state.turn {
             Player::White => Player::Black,
             Player::Black => Player::White,
@@ -288,24 +367,22 @@ impl<'a> Board<'a> {
         };
         let king_sq = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
 
-        for p in match self.state.turn {
-            Player::White => WHITE_PIECES,
-            Player::Black => BLACK_PIECES,
-        }
-        .iter()
-        {
+        for p in pieces {
             let piece_kind = PieceKind::from(*p);
 
             match piece_kind {
                 PieceKind::Queen | PieceKind::Rook | PieceKind::Bishop | PieceKind::Knight => {
                     for from in self.state.piece_bbs[*p as usize] {
+                        let mut inner_move_mask = move_mask;
+                        if self.state.pinned_pieces.get_bit(from) && legality == Legality::Legal {
+                            inner_move_mask &= self.lookup_tables.lookup_line(from, king_sq);
+                        }
+
                         let mut moves_bb =
                             self.lookup_tables
                                 .lookup_moves(*p, from, self.state.occ_bbs[2]);
-                        moves_bb &= !self.state.occ_bbs[self.state.turn as usize];
-                        if self.state.pinned_pieces.get_bit(from) && legality == Legality::Legal {
-                            moves_bb &= self.lookup_tables.lookup_line(from, king_sq);
-                        }
+
+                        moves_bb &= inner_move_mask;
 
                         for to in moves_bb {
                             moves.push(Move(from, to, None));
@@ -313,83 +390,32 @@ impl<'a> Board<'a> {
                     }
                 }
                 PieceKind::King => {
-                    for from in self.state.piece_bbs[*p as usize] {
-                        let mut moves_bb =
-                            self.lookup_tables
-                                .lookup_moves(*p, from, self.state.occ_bbs[2]);
-                        moves_bb &= !self.state.occ_bbs[self.state.turn as usize];
-                        if legality == Legality::Legal {
-                            moves_bb &= !self.state.attacked_squares;
-                        }
-
-                        // FIXME: Can I avoid this match or clean up the code?
-                        let castling_infos = match self.state.turn {
-                            Player::White => [
-                                (
-                                    Castling::WHITE_Q,
-                                    (Square::A1, Square::E1),
-                                    (Square::B1, Square::F1),
-                                    Square::C1,
-                                ),
-                                (
-                                    Castling::WHITE_K,
-                                    (Square::H1, Square::E1),
-                                    (Square::H1, Square::D1),
-                                    Square::G1,
-                                ),
-                            ],
-                            Player::Black => [
-                                (
-                                    Castling::BLACK_Q,
-                                    (Square::A8, Square::E8),
-                                    (Square::B8, Square::F8),
-                                    Square::C8,
-                                ),
-                                (
-                                    Castling::BLACK_K,
-                                    (Square::H8, Square::E8),
-                                    (Square::H8, Square::D8),
-                                    Square::G8,
-                                ),
-                            ],
-                        };
-
-                        for info in castling_infos {
-                            if self.state.castling.contains(info.0) {
-                                let between_bb = self
-                                    .lookup_tables
-                                    .lookup_between_squares(info.1 .0, info.1 .1);
-                                let check_between_bb = self
-                                    .lookup_tables
-                                    .lookup_between_squares(info.2 .0, info.2 .1);
-                                if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                                    && (check_between_bb.0 & self.state.attacked_squares.0) == 0
-                                {
-                                    moves_bb.set_bit(info.3);
-                                }
-                            }
-                        }
-
-                        for to in moves_bb {
-                            moves.push(Move(from, to, None));
-                        }
-                    }
+                    self.generate_king_moves(*p, legality, moves, move_mask);
                 }
                 PieceKind::Pawn => {
-                    let mut enemy_occ = self.state.occ_bbs[enemy_player as usize];
+                    let mut capture_move_mask = self.state.occ_bbs[enemy_player as usize];
+                    capture_move_mask &= move_mask;
                     if let Some(sq) = self.state.en_passant {
-                        enemy_occ.set_bit(sq);
+                        capture_move_mask.set_bit(sq);
                     }
 
                     for from in self.state.piece_bbs[*p as usize] {
+                        let mut inner_move_mask = move_mask & !self.state.occ_bbs[2];
+                        let mut inner_capture_move_mask = capture_move_mask;
+                        if self.state.pinned_pieces.get_bit(from) && legality == Legality::Legal {
+                            inner_move_mask &= self.lookup_tables.lookup_line(from, king_sq);
+                            inner_capture_move_mask &=
+                                self.lookup_tables.lookup_line(from, king_sq);
+                        }
+
                         let mut moves_bb =
                             self.lookup_tables
                                 .lookup_moves(*p, from, self.state.occ_bbs[2]);
-                        moves_bb &= !self.state.occ_bbs[self.state.turn as usize];
-                        moves_bb |= self.lookup_tables.lookup_capture_moves(*p, from) & enemy_occ;
-                        if self.state.pinned_pieces.get_bit(from) && legality == Legality::Legal {
-                            moves_bb &= self.lookup_tables.lookup_line(from, king_sq);
-                        }
+                        moves_bb &= inner_move_mask;
+
+                        moves_bb |= self.lookup_tables.lookup_capture_moves(*p, from)
+                            & inner_capture_move_mask;
+
                         for to in moves_bb {
                             let move_rank = Rank::from(to);
                             if Some(to) == self.state.en_passant && legality == Legality::Legal {
@@ -438,8 +464,79 @@ impl<'a> Board<'a> {
                 }
             };
         }
+    }
 
-        moves
+    // FIXME: Pass in move mask?
+    fn generate_king_moves(
+        &self,
+        p: Piece,
+        legality: Legality,
+        moves: &mut Vec<Move>,
+        move_mask: BitBoard,
+    ) {
+        let mut move_mask = move_mask;
+        if legality == Legality::Legal {
+            move_mask &= !self.state.attacked_squares;
+        }
+
+        let from = self.state.piece_bbs[p as usize].get_lsb().unwrap();
+
+        let mut moves_bb = self
+            .lookup_tables
+            .lookup_moves(p, from, self.state.occ_bbs[2]);
+        moves_bb &= move_mask;
+
+        // FIXME: Can I avoid this match or clean up the code?
+        let castling_infos = match self.state.turn {
+            Player::White => [
+                (
+                    Castling::WHITE_Q,
+                    (Square::A1, Square::E1),
+                    (Square::B1, Square::F1),
+                    Square::C1,
+                ),
+                (
+                    Castling::WHITE_K,
+                    (Square::H1, Square::E1),
+                    (Square::H1, Square::D1),
+                    Square::G1,
+                ),
+            ],
+            Player::Black => [
+                (
+                    Castling::BLACK_Q,
+                    (Square::A8, Square::E8),
+                    (Square::B8, Square::F8),
+                    Square::C8,
+                ),
+                (
+                    Castling::BLACK_K,
+                    (Square::H8, Square::E8),
+                    (Square::H8, Square::D8),
+                    Square::G8,
+                ),
+            ],
+        };
+
+        for info in castling_infos {
+            if self.state.castling.contains(info.0) {
+                let between_bb = self
+                    .lookup_tables
+                    .lookup_between_squares(info.1 .0, info.1 .1);
+                let check_between_bb = self
+                    .lookup_tables
+                    .lookup_between_squares(info.2 .0, info.2 .1);
+                if (between_bb.0 & self.state.occ_bbs[2].0) == 0
+                    && (check_between_bb.0 & self.state.attacked_squares.0) == 0
+                {
+                    moves_bb.set_bit(info.3);
+                }
+            }
+        }
+
+        for to in moves_bb {
+            moves.push(Move(from, to, None));
+        }
     }
 
     pub fn apply_move(&mut self, m: Move) {
@@ -713,430 +810,6 @@ impl<'a> Board<'a> {
         PIECES
             .into_iter()
             .find(|p| self.state.piece_bbs[*p as usize].get_bit(s))
-    }
-
-    fn generate_moves_for_player(&self, player: Player, legality: Legality) -> Vec<Move> {
-        if self.state.checkers.0 > 0 && legality == Legality::Legal {
-            return self.generate_evasions(player, legality);
-        }
-
-        let pieces = match player {
-            Player::White => WHITE_PIECES,
-            Player::Black => BLACK_PIECES,
-        };
-
-        let mut moves = Vec::with_capacity(MAX_MOVES);
-        for p in pieces {
-            self.generate_piece_moves(p, legality, &mut moves);
-        }
-
-        moves
-    }
-
-    fn generate_evasions(&self, player: Player, legality: Legality) -> Vec<Move> {
-        let king_piece = match player {
-            Player::White => Piece::WhiteKing,
-            Player::Black => Piece::BlackKing,
-        };
-        let mut moves = Vec::with_capacity(MAX_MOVES);
-
-        self.generate_piece_moves(king_piece, legality, &mut moves);
-
-        if self.state.checkers.0.count_ones() == 1 {
-            let checking_piece_kind = PieceKind::from(
-                self.get_piece(self.state.checkers.get_lsb().unwrap())
-                    .unwrap(),
-            );
-            if checking_piece_kind == PieceKind::Queen
-                || checking_piece_kind == PieceKind::Rook
-                || checking_piece_kind == PieceKind::Bishop
-            {
-                let pieces = match player {
-                    Player::White => WHITE_PIECES,
-                    Player::Black => BLACK_PIECES,
-                };
-                let mut checking_ray_bb = self.lookup_tables.lookup_between_squares(
-                    self.state.checkers.get_lsb().unwrap(),
-                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap(),
-                );
-                checking_ray_bb.0 |= self.state.checkers.0;
-                for p in pieces {
-                    let piece_kind = PieceKind::from(p);
-                    let is_pawn = piece_kind == PieceKind::Pawn;
-                    if piece_kind != PieceKind::King {
-                        let mut piece_bb = self.state.piece_bbs[p as usize];
-                        while let Some(from) = piece_bb.pop_lsb() {
-                            // FIXME: This if is gonna be slow cause I'm check on every iteration but I
-                            // know the piece_kind is always the same. I can probably get rid of it by
-                            // restructing the code.
-                            let mut valid_moves_bb = if is_pawn {
-                                self.generate_single_pawn_moves_bb(p, from, false)
-                            } else {
-                                self.generate_single_piece_moves_bb(p, from, legality, false)
-                            };
-                            valid_moves_bb.0 &= checking_ray_bb.0;
-
-                            if self.state.pinned_pieces.get_bit(from) {
-                                let king_piece = match self.state.turn {
-                                    Player::White => Piece::WhiteKing,
-                                    Player::Black => Piece::BlackKing,
-                                };
-                                let king_sq =
-                                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
-                                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
-                            }
-
-                            while let Some(to) = valid_moves_bb.pop_lsb() {
-                                let move_rank = Rank::from(to);
-                                if piece_kind == PieceKind::Pawn
-                                    && (move_rank == Rank::R8 || move_rank == Rank::R1)
-                                {
-                                    for pk in [
-                                        PieceKind::Queen,
-                                        PieceKind::Rook,
-                                        PieceKind::Bishop,
-                                        PieceKind::Knight,
-                                    ] {
-                                        moves.push(Move(from, to, Some(pk)));
-                                    }
-                                } else {
-                                    moves.push(Move(from, to, None));
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                let pieces = match player {
-                    Player::White => WHITE_PIECES,
-                    Player::Black => BLACK_PIECES,
-                };
-                for p in pieces {
-                    let piece_kind = PieceKind::from(p);
-                    let is_pawn = piece_kind == PieceKind::Pawn;
-                    if piece_kind != PieceKind::King {
-                        let mut piece_bb = self.state.piece_bbs[p as usize];
-                        while let Some(from) = piece_bb.pop_lsb() {
-                            // FIXME: This if is gonna be slow cause I'm check on every iteration but I
-                            // know the piece_kind is always the same. I can probably get rid of it by
-                            // restructing the code.
-                            let mut valid_moves_bb = if is_pawn {
-                                let mut bb = self.generate_single_pawn_moves_bb(p, from, false);
-                                let mut moves_bb = BitBoard::new();
-                                while let Some(s) = bb.pop_lsb() {
-                                    if Some(s) == self.state.en_passant {
-                                        let en_passant_square = self.state.en_passant.unwrap();
-                                        let en_passant_rank = Rank::from(en_passant_square);
-                                        let cap_square = if en_passant_rank == Rank::R3 {
-                                            Square::from((File::from(en_passant_square), Rank::R4))
-                                        } else {
-                                            Square::from((File::from(en_passant_square), Rank::R5))
-                                        };
-
-                                        if self.state.checkers.get_bit(cap_square) {
-                                            moves_bb.set_bit(s);
-                                        }
-                                    } else if self.state.checkers.get_bit(s) {
-                                        moves_bb.set_bit(s);
-                                    }
-                                }
-                                moves_bb
-                            } else {
-                                let mut bb =
-                                    self.generate_single_piece_moves_bb(p, from, legality, false);
-                                bb.0 &= self.state.checkers.0;
-                                bb
-                            };
-
-                            if self.state.pinned_pieces.get_bit(from) {
-                                let king_piece = match self.state.turn {
-                                    Player::White => Piece::WhiteKing,
-                                    Player::Black => Piece::BlackKing,
-                                };
-                                let king_sq =
-                                    self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
-                                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
-                            }
-
-                            while let Some(to) = valid_moves_bb.pop_lsb() {
-                                let move_rank = Rank::from(to);
-                                if piece_kind == PieceKind::Pawn
-                                    && (move_rank == Rank::R8 || move_rank == Rank::R1)
-                                {
-                                    for pk in [
-                                        PieceKind::Queen,
-                                        PieceKind::Rook,
-                                        PieceKind::Bishop,
-                                        PieceKind::Knight,
-                                    ] {
-                                        moves.push(Move(from, to, Some(pk)));
-                                    }
-                                } else {
-                                    moves.push(Move(from, to, None));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        moves
-    }
-
-    fn generate_piece_moves(&self, p: Piece, legality: Legality, moves: &mut Vec<Move>) {
-        let pk = PieceKind::from(p);
-        match pk {
-            PieceKind::Knight
-            | PieceKind::Rook
-            | PieceKind::Bishop
-            | PieceKind::Queen
-            | PieceKind::King => self.generate_piece_moves_inner(p, legality, moves),
-            PieceKind::Pawn => self.generate_pawn_moves(p, moves),
-        }
-    }
-
-    // FIXME: better name
-    fn generate_piece_moves_inner(&self, p: Piece, legality: Legality, moves: &mut Vec<Move>) {
-        let mut piece_bb = self.state.piece_bbs[p as usize];
-        while let Some(from) = piece_bb.pop_lsb() {
-            // FIXME: I need to do this for the pawn fn too
-            let mut valid_moves_bb = self.generate_single_piece_moves_bb(p, from, legality, false);
-
-            if legality == Legality::Legal && self.state.pinned_pieces.get_bit(from) {
-                let king_piece = match self.state.turn {
-                    Player::White => Piece::WhiteKing,
-                    Player::Black => Piece::BlackKing,
-                };
-                let king_sq = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
-                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
-            }
-
-            while let Some(to) = valid_moves_bb.pop_lsb() {
-                moves.push(Move(from, to, None));
-            }
-        }
-    }
-
-    fn generate_single_piece_moves_bb(
-        &self,
-        p: Piece,
-        from: Square,
-        legality: Legality,
-        is_attacked_gen: bool,
-    ) -> BitBoard {
-        let all_occ = if is_attacked_gen {
-            let mut x = self.state.occ_bbs[2];
-            let opposite_king = match Player::from(p) {
-                Player::White => Piece::BlackKing,
-                Player::Black => Piece::WhiteKing,
-            };
-            let opposite_king_square = self.state.piece_bbs[opposite_king as usize]
-                .get_lsb()
-                .unwrap();
-            x.unset_bit(opposite_king_square);
-            x
-        } else {
-            self.state.occ_bbs[2]
-        };
-        let move_bb = self.lookup_tables.lookup_moves(p, from, all_occ);
-        let mut valid_moves_bb = move_bb;
-        if !is_attacked_gen {
-            let occ = self.state.occ_bbs[Player::from(p) as usize];
-            valid_moves_bb.0 &= !occ.0;
-        }
-        // FIXME: There is already a match on piece type above. It would be nice if we didn't have
-        // to do this check.
-        if PieceKind::from(p) == PieceKind::King {
-            if legality == Legality::Legal {
-                valid_moves_bb.0 &= !self.state.attacked_squares.0;
-            }
-
-            // FIXME: Can I avoid this match?
-            match Player::from(p) {
-                Player::White => {
-                    if self.state.castling.contains(Castling::WHITE_Q) {
-                        let between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::A1, Square::E1);
-                        let check_between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::B1, Square::F1);
-                        if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
-                        {
-                            valid_moves_bb.set_bit(Square::C1)
-                        }
-                    }
-
-                    if self.state.castling.contains(Castling::WHITE_K) {
-                        let between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::H1, Square::E1);
-                        let check_between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::H1, Square::D1);
-                        if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
-                        {
-                            valid_moves_bb.set_bit(Square::G1)
-                        }
-                    }
-                }
-                Player::Black => {
-                    if self.state.castling.contains(Castling::BLACK_Q) {
-                        let between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::A8, Square::E8);
-                        let check_between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::B8, Square::F8);
-                        if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
-                        {
-                            valid_moves_bb.set_bit(Square::C8)
-                        }
-                    }
-
-                    if self.state.castling.contains(Castling::BLACK_K) {
-                        let between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::H8, Square::E8);
-                        let check_between_bb = self
-                            .lookup_tables
-                            .lookup_between_squares(Square::H8, Square::D8);
-                        if (between_bb.0 & self.state.occ_bbs[2].0) == 0
-                            && (check_between_bb.0 & self.state.attacked_squares.0) == 0
-                        {
-                            valid_moves_bb.set_bit(Square::G8)
-                        }
-                    }
-                }
-            }
-        }
-        valid_moves_bb
-    }
-
-    fn generate_pawn_moves(&self, p: Piece, moves: &mut Vec<Move>) {
-        let mut piece_bb = self.state.piece_bbs[p as usize];
-        while let Some(from) = piece_bb.pop_lsb() {
-            let mut valid_moves_bb = self.generate_single_pawn_moves_bb(p, from, false);
-
-            if self.state.pinned_pieces.get_bit(from) {
-                let king_piece = match self.state.turn {
-                    Player::White => Piece::WhiteKing,
-                    Player::Black => Piece::BlackKing,
-                };
-                let king_sq = self.state.piece_bbs[king_piece as usize].get_lsb().unwrap();
-                valid_moves_bb.0 &= self.lookup_tables.lookup_line(from, king_sq).0;
-            }
-
-            while let Some(to) = valid_moves_bb.pop_lsb() {
-                let move_rank = Rank::from(to);
-                if move_rank == Rank::R8 || move_rank == Rank::R1 {
-                    for pk in [
-                        PieceKind::Queen,
-                        PieceKind::Rook,
-                        PieceKind::Bishop,
-                        PieceKind::Knight,
-                    ] {
-                        moves.push(Move(from, to, Some(pk)));
-                    }
-                } else if Some(to) == self.state.en_passant {
-                    let mut new_all_occ = self.state.occ_bbs[2];
-                    new_all_occ.unset_bit(from);
-                    if move_rank == Rank::R3 {
-                        new_all_occ.unset_bit(Square::from((File::from(to), Rank::R4)));
-                    } else {
-                        new_all_occ.unset_bit(Square::from((File::from(to), Rank::R5)));
-                    }
-                    new_all_occ.set_bit(to);
-                    let mut attacks: u64 = 0;
-                    let pieces = match self.state.turn {
-                        Player::White => [Piece::BlackRook, Piece::BlackBishop, Piece::BlackQueen],
-                        Player::Black => [Piece::WhiteRook, Piece::WhiteBishop, Piece::WhiteQueen],
-                    };
-                    for p in pieces {
-                        let mut pbb = self.state.piece_bbs[p as usize];
-                        while let Some(s) = pbb.pop_lsb() {
-                            attacks |= self.lookup_tables.lookup_moves(p, s, new_all_occ).0;
-                        }
-                    }
-
-                    let king_piece = match self.state.turn {
-                        Player::White => Piece::WhiteKing,
-                        Player::Black => Piece::BlackKing,
-                    };
-                    if attacks & self.state.piece_bbs[king_piece as usize].0 == 0 {
-                        moves.push(Move(from, to, None));
-                    }
-                } else {
-                    moves.push(Move(from, to, None));
-                }
-            }
-        }
-    }
-
-    fn generate_single_pawn_moves_bb(
-        &self,
-        p: Piece,
-        from: Square,
-        is_attacked_gen: bool,
-    ) -> BitBoard {
-        let is_white = Player::from(p) == Player::White;
-        let mut valid_moves_bb = BitBoard::new();
-        if !is_attacked_gen {
-            let move_bb = self
-                .lookup_tables
-                .lookup_moves(p, from, self.state.occ_bbs[2]);
-            let all_occ = self.state.occ_bbs[2];
-            valid_moves_bb = BitBoard(move_bb.0 & (!all_occ.0));
-
-            let square_index = from as u8;
-            let player = Player::from(p);
-            match player {
-                Player::White => {
-                    if (8..=15).contains(&square_index) {
-                        let check_index = square_index + 8;
-                        let move_index = square_index + 16;
-                        let mut check_bb = 1 << check_index;
-                        check_bb |= 1 << move_index;
-                        if all_occ.0 & check_bb == 0 {
-                            valid_moves_bb.set_bit(Square::try_from(move_index).unwrap());
-                        }
-                    }
-                }
-                Player::Black => {
-                    if (48..=55).contains(&square_index) {
-                        let check_index = square_index - 8;
-                        let move_index = square_index - 16;
-                        let mut check_bb = 1 << check_index;
-                        check_bb |= 1 << move_index;
-                        if all_occ.0 & check_bb == 0 {
-                            valid_moves_bb.set_bit(Square::try_from(move_index).unwrap());
-                        }
-                    }
-                }
-            }
-        }
-
-        let capture_move_bb = self.lookup_tables.lookup_capture_moves(p, from);
-        let enemy_occ = if is_attacked_gen {
-            BitBoard(u64::MAX)
-        } else {
-            self.state.occ_bbs[if is_white { 1 } else { 0 }]
-        };
-        let en_passant_bb = if let Some(sq) = self.state.en_passant {
-            let mut bb = BitBoard::new();
-            bb.set_bit(sq);
-            bb
-        } else {
-            BitBoard::new()
-        };
-
-        valid_moves_bb.0 |= capture_move_bb.0 & (enemy_occ.0 | en_passant_bb.0);
-
-        valid_moves_bb
     }
 
     fn count_piece(&self, p: Piece) -> u32 {
