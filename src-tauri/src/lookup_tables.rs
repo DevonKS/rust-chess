@@ -5,7 +5,139 @@ use crate::core::{
     PLAYERS, SQUARES,
 };
 
-use rustc_hash::FxHashMap;
+const ROOK_MAGIC_SHIFTS: [(u64, u64); 64] = [
+    (9403533769828237312, 12),
+    (2350887802654171152, 12),
+    (9367496296170397728, 12),
+    (4505816372611074, 12),
+    (1155314076272828432, 12),
+    (19140337071167504, 12),
+    (2314852411796358208, 12),
+    (720576494463631396, 12),
+    (2314990947030542416, 12),
+    (288371200613157520, 12),
+    (37735307788944576, 12),
+    (671038562023835776, 12),
+    (40611565828833796, 12),
+    (6917538313429590280, 12),
+    (612518141054189617, 12),
+    (4612814122256957568, 12),
+    (844725603012624, 12),
+    (433157555997638697, 12),
+    (1166436426792894530, 12),
+    (9245907661567363096, 12),
+    (2305860809873819136, 12),
+    (18034189752336648, 12),
+    (72061994433284610, 12),
+    (19423422933180673, 12),
+    (2305860609452810307, 12),
+    (96759708680224, 12),
+    (2323999313492971520, 12),
+    (13871371123310008328, 12),
+    (72084023119446018, 12),
+    (6953562382157349026, 12),
+    (9818129213205528586, 12),
+    (14087827119988031496, 12),
+    (54052336292864000, 12),
+    (10526337299459867168, 12),
+    (37460707254280, 12),
+    (288249222470828064, 12),
+    (9259427222287061056, 12),
+    (2883430211717169472, 12),
+    (577624035750838592, 12),
+    (3479039783134560384, 12),
+    (9227893503548227584, 12),
+    (35185445863440, 12),
+    (3544350501074371616, 12),
+    (1742893193400158480, 12),
+    (9360503398736000, 12),
+    (10137497216750080, 12),
+    (4681720561420304, 12),
+    (11529497071874745864, 12),
+    (288798548828389648, 12),
+    (16334525135356032, 12),
+    (37155867304936449, 12),
+    (15010643254055010432, 12),
+    (4511433714958400, 12),
+    (616413857325058, 12),
+    (82753647447933056, 12),
+    (54352192657703552, 12),
+    (145276830771843330, 12),
+    (4901201998686257282, 12),
+    (4075771544188829701, 12),
+    (289919243330789378, 12),
+    (36048622588276817, 12),
+    (4611703645442986501, 12),
+    (220712735787188354, 12),
+    (9169936119660610, 12),
+];
+
+const BISHOP_MAGIC_SHIFTS: [(u64, u64); 64] = [
+    (180152922049388546, 12),
+    (40836557443072, 12),
+    (3494934066609782912, 12),
+    (11529295447999127554, 12),
+    (2784481447940, 12),
+    (19703549051011073, 12),
+    (9223380858736541697, 12),
+    (6341640025747227136, 12),
+    (73680969303302, 12),
+    (14988151083837693957, 12),
+    (8359252688810805248, 12),
+    (2413965142988718088, 12),
+    (4508083623690240, 12),
+    (9024817765294104, 12),
+    (5916472673567360, 12),
+    (585539557522409472, 12),
+    (585784611378855940, 12),
+    (146412068011050052, 12),
+    (2314965797447270464, 12),
+    (1179995896111697920, 12),
+    (549448505221974016, 12),
+    (1155322850887352835, 12),
+    (433192746610622592, 12),
+    (4644337389469728, 12),
+    (5332335077001282306, 12),
+    (578797251154411531, 12),
+    (4760587380627342336, 12),
+    (18296981723022112, 12),
+    (2667292087305158664, 12),
+    (9009398282715488, 12),
+    (288863703562194944, 12),
+    (281552302901280, 12),
+    (9225131272639111209, 12),
+    (2306125756842903552, 12),
+    (4468921991177, 12),
+    (562984850293296, 12),
+    (2379066102828498960, 12),
+    (738652542942184192, 12),
+    (9512730857715270020, 12),
+    (9042933449789760, 12),
+    (27030462643835680, 12),
+    (72656896600834112, 12),
+    (2305852492776474112, 12),
+    (1227793883048443920, 12),
+    (800728201584650, 12),
+    (1215982930212425732, 12),
+    (10376646003959792744, 12),
+    (324347151293482016, 12),
+    (72132506874299392, 12),
+    (10520452782145733060, 12),
+    (152207597683869704, 12),
+    (612525017299157504, 12),
+    (2305843799488729382, 12),
+    (297244793100107776, 12),
+    (9233021385318633472, 12),
+    (145264177997676866, 12),
+    (1153062654680764416, 12),
+    (18014501639168512, 12),
+    (1126518793437826, 12),
+    (2323857957485350946, 12),
+    (9223374236152791296, 12),
+    (324402664815460640, 12),
+    (595042542840447584, 12),
+    (648958151562920970, 12),
+];
 
 pub struct LookupTables {
     knight_moves_table: [bitboard::BitBoard; 64],
@@ -14,9 +146,11 @@ pub struct LookupTables {
     king_moves_table: [bitboard::BitBoard; 64],
     rook_moves_mask: [bitboard::BitBoard; 64],
     bishop_moves_mask: [bitboard::BitBoard; 64],
-    rook_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
-    bishop_moves_table: FxHashMap<(u8, u64), bitboard::BitBoard>,
-    between_sqaures_table: FxHashMap<(u8, u8), bitboard::BitBoard>,
+    // FIXME: What is the correct type to use here? I'd like to use [[bitboard::BitBoard; 64]; 64]
+    // but that blows up the stack
+    rook_moves_table: Vec<Vec<bitboard::BitBoard>>,
+    bishop_moves_table: Vec<Vec<bitboard::BitBoard>>,
+    between_sqaures_table: [[bitboard::BitBoard; 64]; 64],
     line_table: [[bitboard::BitBoard; 64]; 64],
 }
 
@@ -56,18 +190,28 @@ impl LookupTables {
         match PieceKind::from(p) {
             PieceKind::Rook => {
                 let blockers_key = all_occupancy & self.rook_moves_mask[s as usize];
-                self.rook_moves_table[&(s as u8, blockers_key.0)]
+                let (magic_number, shifts) = ROOK_MAGIC_SHIFTS[s as usize];
+                let k = apply_magic_number(blockers_key, magic_number, shifts);
+                self.rook_moves_table[s as usize][k.0 as usize]
             }
             PieceKind::Knight => self.knight_moves_table[s as usize],
             PieceKind::Bishop => {
                 let blockers_key = all_occupancy & self.bishop_moves_mask[s as usize];
-                self.bishop_moves_table[&(s as u8, blockers_key.0)]
+                let (magic_number, shifts) = BISHOP_MAGIC_SHIFTS[s as usize];
+                let k = apply_magic_number(blockers_key, magic_number, shifts);
+                self.bishop_moves_table[s as usize][k.0 as usize]
             }
             PieceKind::Queen => {
                 let rook_blockers_key = all_occupancy & self.rook_moves_mask[s as usize];
-                let rook_moves = self.rook_moves_table[&(s as u8, rook_blockers_key.0)];
+                let (rook_magic_number, rook_shifts) = ROOK_MAGIC_SHIFTS[s as usize];
+                let rook_k = apply_magic_number(rook_blockers_key, rook_magic_number, rook_shifts);
+                let rook_moves = self.rook_moves_table[s as usize][rook_k.0 as usize];
+
                 let bishop_blockers_key = all_occupancy & self.bishop_moves_mask[s as usize];
-                let bishop_moves = self.bishop_moves_table[&(s as u8, bishop_blockers_key.0)];
+                let (bishop_magic_number, bishop_shifts) = BISHOP_MAGIC_SHIFTS[s as usize];
+                let k = apply_magic_number(bishop_blockers_key, bishop_magic_number, bishop_shifts);
+                let bishop_moves = self.bishop_moves_table[s as usize][k.0 as usize];
+
                 rook_moves | bishop_moves
             }
             PieceKind::King => self.king_moves_table[s as usize],
@@ -97,12 +241,20 @@ impl LookupTables {
     }
 
     pub fn lookup_between_squares(&self, from: Square, to: Square) -> bitboard::BitBoard {
-        self.between_sqaures_table[&(from as u8, to as u8)]
+        self.between_sqaures_table[from as usize][to as usize]
     }
 
     pub fn lookup_line(&self, from: Square, to: Square) -> bitboard::BitBoard {
         self.line_table[from as usize][to as usize]
     }
+}
+
+pub fn apply_magic_number(
+    blocker_bitboard: bitboard::BitBoard,
+    magic_number: u64,
+    shifts: u64,
+) -> bitboard::BitBoard {
+    (blocker_bitboard * magic_number) >> (64 - shifts)
 }
 
 fn gen_knight_moves() -> [bitboard::BitBoard; 64] {
@@ -220,32 +372,45 @@ fn gen_king_move(s: u64) -> bitboard::BitBoard {
 fn gen_sliding_moves(
     move_masks: &[bitboard::BitBoard; 64],
     is_rook: bool,
-) -> FxHashMap<(u8, u64), bitboard::BitBoard> {
-    let mut moves = FxHashMap::default();
+) -> Vec<Vec<bitboard::BitBoard>> {
+    let mut moves = vec![vec![bitboard::BitBoard::new(); 4096]; 64];
     for (s, mask) in move_masks.iter().enumerate() {
-        let total_blocker_combs = 2_u64.pow(mask.0.count_ones());
+        let total_blocker_combs = 2_u64.pow(mask.pop_count());
         for raw_blocker in 0..total_blocker_combs {
-            let raw_blocker_bitboard = bitboard::BitBoard(raw_blocker);
-            let mut blocker_bitboard = bitboard::BitBoard::new();
-            let mut blocker_index = 0;
-            let mut blocker_mask = *mask;
-            while let Some(mask_index) = blocker_mask.pop_lsb() {
-                let blocker_set =
-                    raw_blocker_bitboard.get_bit(Square::try_from(blocker_index).unwrap());
-                if blocker_set {
-                    blocker_bitboard.set_bit(mask_index);
-                } else {
-                    blocker_bitboard.unset_bit(mask_index);
-                }
-                blocker_index += 1
-            }
-            moves.insert(
-                (s as u8, blocker_bitboard.0),
-                gen_sliding_move(s as u8, blocker_bitboard.0, is_rook),
-            );
+            let blocker_bitboard = create_blocker_bitboard(*mask, raw_blocker);
+
+            let (magic_number, shifts) = if is_rook {
+                ROOK_MAGIC_SHIFTS[s]
+            } else {
+                BISHOP_MAGIC_SHIFTS[s]
+            };
+            let k = apply_magic_number(blocker_bitboard, magic_number, shifts);
+
+            moves[s][k.0 as usize] = gen_sliding_move(s as u8, blocker_bitboard.0, is_rook);
         }
     }
     moves
+}
+
+pub fn create_blocker_bitboard(
+    move_mask: bitboard::BitBoard,
+    raw_blocker: u64,
+) -> bitboard::BitBoard {
+    let raw_blocker_bitboard = bitboard::BitBoard(raw_blocker);
+    let mut blocker_bitboard = bitboard::BitBoard::new();
+    let mut blocker_index = 0;
+    let mut blocker_mask = move_mask;
+    while let Some(mask_index) = blocker_mask.pop_lsb() {
+        let blocker_set = raw_blocker_bitboard.get_bit(Square::try_from(blocker_index).unwrap());
+        if blocker_set {
+            blocker_bitboard.set_bit(mask_index);
+        } else {
+            blocker_bitboard.unset_bit(mask_index);
+        }
+        blocker_index += 1
+    }
+
+    blocker_bitboard
 }
 
 fn gen_sliding_move(s: u8, blockers: u64, is_rook: bool) -> bitboard::BitBoard {
@@ -283,7 +448,7 @@ fn gen_sliding_move(s: u8, blockers: u64, is_rook: bool) -> bitboard::BitBoard {
     moves_bitboard
 }
 
-fn gen_sliding_moves_mask(is_rook: bool) -> [bitboard::BitBoard; 64] {
+pub fn gen_sliding_moves_mask(is_rook: bool) -> [bitboard::BitBoard; 64] {
     let mut moves = Vec::with_capacity(64);
     for s in SQUARES {
         moves.push(gen_sliding_move_mask(s as u8, is_rook));
@@ -337,8 +502,8 @@ fn gen_sliding_move_mask(s: u8, is_rook: bool) -> bitboard::BitBoard {
     moves_bitboard
 }
 
-fn gen_between_squares() -> FxHashMap<(u8, u8), bitboard::BitBoard> {
-    let mut table = FxHashMap::default();
+fn gen_between_squares() -> [[bitboard::BitBoard; 64]; 64] {
+    let mut moves = [[bitboard::BitBoard::new(); 64]; 64];
     for from in SQUARES {
         for to in SQUARES {
             let from_file = File::from(from);
@@ -350,14 +515,14 @@ fn gen_between_squares() -> FxHashMap<(u8, u8), bitboard::BitBoard> {
             let same_diag =
                 (from_file as i8 - to_file as i8).abs() == (from_rank as i8 - to_rank as i8).abs();
             if from != to && (same_file || same_rank || same_diag) {
-                table.insert((from as u8, to as u8), gen_between_squares_inner(from, to));
+                moves[from as usize][to as usize] = gen_between_squares_inner(from, to);
             } else {
-                table.insert((from as u8, to as u8), bitboard::BitBoard::new());
+                moves[from as usize][to as usize] = bitboard::BitBoard::new();
             }
         }
     }
 
-    table
+    moves
 }
 
 fn gen_between_squares_inner(from: Square, to: Square) -> bitboard::BitBoard {
@@ -415,8 +580,8 @@ fn gen_between_squares_inner(from: Square, to: Square) -> bitboard::BitBoard {
 }
 
 fn gen_lines(
-    rook_moves_table: &FxHashMap<(u8, u64), bitboard::BitBoard>,
-    bishop_moves_table: &FxHashMap<(u8, u64), bitboard::BitBoard>,
+    rook_moves_table: &Vec<Vec<bitboard::BitBoard>>,
+    bishop_moves_table: &Vec<Vec<bitboard::BitBoard>>,
 ) -> [[bitboard::BitBoard; 64]; 64] {
     let mut lines = [[bitboard::BitBoard::new(); 64]; 64];
     for from in SQUARES {
@@ -431,15 +596,11 @@ fn gen_lines(
                 (from_file as i8 - to_file as i8).abs() == (from_rank as i8 - to_rank as i8).abs();
 
             if same_rank || same_file {
-                lines[from as usize][to as usize] = bitboard::BitBoard(
-                    rook_moves_table.get(&(from as u8, 0)).unwrap().0
-                        & rook_moves_table.get(&(to as u8, 0)).unwrap().0,
-                );
+                lines[from as usize][to as usize] =
+                    rook_moves_table[from as usize][0] & rook_moves_table[to as usize][0];
             } else if same_diag {
-                lines[from as usize][to as usize] = bitboard::BitBoard(
-                    bishop_moves_table.get(&(from as u8, 0)).unwrap().0
-                        & bishop_moves_table.get(&(to as u8, 0)).unwrap().0,
-                );
+                lines[from as usize][to as usize] =
+                    bishop_moves_table[from as usize][0] & bishop_moves_table[to as usize][0];
             }
         }
     }

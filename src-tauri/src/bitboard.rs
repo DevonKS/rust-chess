@@ -1,6 +1,9 @@
 use std::{
     fmt,
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not},
+    ops::{
+        BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Mul, MulAssign, Not, Shr,
+        ShrAssign,
+    },
 };
 
 use crate::core::{Square, FILES, RANKS};
@@ -117,6 +120,8 @@ macro_rules! impl_bit_ops {
         impl_indv_bit_ops!($t, $b, BitAnd, bitand, BitAndAssign, bitand_assign);
         impl_indv_bit_ops!($t, $b, BitOr, bitor, BitOrAssign, bitor_assign);
         impl_indv_bit_ops!($t, $b, BitXor, bitxor, BitXorAssign, bitxor_assign);
+        impl_indv_bit_ops!($t, $b, Mul, mul, MulAssign, mul_assign);
+        impl_indv_bit_ops!($t, $b, Shr, shr, ShrAssign, shr_assign);
     };
 }
 

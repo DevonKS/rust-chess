@@ -2358,6 +2358,7 @@ version = "0.0.0"
 dependencies = [
  "bitflags 2.4.0",
  "criterion",
+ "rand 0.8.5",
  "regex",
  "rustc-hash",
  "serde",

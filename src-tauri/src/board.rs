@@ -466,7 +466,6 @@ impl<'a> Board<'a> {
         }
     }
 
-    // FIXME: Pass in move mask?
     fn generate_king_moves(
         &self,
         p: Piece,
