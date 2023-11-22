@@ -1,5 +1,5 @@
 import { Map as IMap, Set as ISet, List as IList } from 'immutable';
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./Board.css";
@@ -468,6 +468,10 @@ function makeDefaultBoardState() {
 function Board() {
   // FIXME: Will having all the state in one map have performance implications for rendering. i.e. will it still be able to do smart things like see that only arrows has changed.
   const [boardState, setBoardState] = useState(makeDefaultBoardState());
+
+  useEffect(() => {
+    invoke('new_game').then((res) => console.log(res));
+  }, []);
 
   let clickState = new Map<string, string>();
 
