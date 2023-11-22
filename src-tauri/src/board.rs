@@ -729,6 +729,8 @@ impl<'a> Board<'a> {
         };
         let king_bb = self.state.piece_bbs[king_piece as usize];
         let king_square = king_bb.get_lsb().unwrap();
+        let to_file = File::from(king_square);
+        let to_rank = Rank::from(king_square);
 
         let mut all_occ = self.state.occ_bbs[2];
         all_occ.unset_bit(king_square);
@@ -752,8 +754,6 @@ impl<'a> Board<'a> {
 
                         let from_file = File::from(from);
                         let from_rank = Rank::from(from);
-                        let to_file = File::from(king_square);
-                        let to_rank = Rank::from(king_square);
                         let same_file = from_file == to_file;
                         let same_rank = from_rank == to_rank;
                         let same_diag = (from_file as i8 - to_file as i8).abs()

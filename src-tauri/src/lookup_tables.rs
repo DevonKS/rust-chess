@@ -143,10 +143,11 @@ pub struct LookupTables {
     knight_moves_table: [bitboard::BitBoard; 64],
     pawn_captures_table: [[bitboard::BitBoard; 64]; 2],
     pawn_moves_table: [[[bitboard::BitBoard; 64]; 2]; 2],
+    pawn_double_mask: [bitboard::BitBoard; 64],
     king_moves_table: [bitboard::BitBoard; 64],
     rook_moves_mask: [bitboard::BitBoard; 64],
     bishop_moves_mask: [bitboard::BitBoard; 64],
-    // FIXME: What is the correct type to use here? I'd like to use [[bitboard::BitBoard; 64]; 64]
+    // FIXME: What is the correct type to use here? I'd like to use [[bitboard::BitBoard; 4096]; 64]
     // but that blows up the stack
     rook_moves_table: Vec<Vec<bitboard::BitBoard>>,
     bishop_moves_table: Vec<Vec<bitboard::BitBoard>>,
@@ -171,6 +172,7 @@ impl LookupTables {
             knight_moves_table: gen_knight_moves(),
             pawn_moves_table: gen_pawn_moves(),
             pawn_captures_table: gen_pawn_capture_moves(),
+            pawn_double_mask: gen_pawn_double_masks(),
             king_moves_table: gen_king_moves(),
             rook_moves_mask,
             bishop_moves_mask,
@@ -216,15 +218,9 @@ impl LookupTables {
             }
             PieceKind::King => self.king_moves_table[s as usize],
             PieceKind::Pawn => {
-                let mut can_double = false;
-                let file = File::from(s);
-                let rank = Rank::from(s);
                 let player = Player::from(p);
-                if rank == Rank::R2 && player == Player::White {
-                    can_double = !all_occupancy.get_bit(Square::from((file, Rank::R3)));
-                } else if rank == Rank::R7 && player == Player::Black {
-                    can_double = !all_occupancy.get_bit(Square::from((file, Rank::R6)));
-                }
+                let pawn_double_mask = self.pawn_double_mask[s as usize];
+                let can_double = (pawn_double_mask & all_occupancy).is_empty();
 
                 self.pawn_moves_table[if can_double { 1 } else { 0 }][player as usize][s as usize]
             }
@@ -299,7 +295,7 @@ fn gen_pawn_move(s: u64, can_double: bool, is_white: bool) -> bitboard::BitBoard
         let mut moves = 0;
         moves |= bb << 8;
 
-        if can_double {
+        if can_double && Rank::from(Square::try_from(s as u8).unwrap()) == Rank::R2 {
             moves |= bb << 16;
         }
 
@@ -309,7 +305,7 @@ fn gen_pawn_move(s: u64, can_double: bool, is_white: bool) -> bitboard::BitBoard
         let mut moves = 0;
         moves |= bb >> 8;
 
-        if can_double {
+        if can_double && Rank::from(Square::try_from(s as u8).unwrap()) == Rank::R7 {
             moves |= bb >> 16;
         }
 
@@ -328,6 +324,21 @@ fn gen_pawn_capture_moves() -> [[bitboard::BitBoard; 64]; 2] {
         white_moves.try_into().unwrap(),
         black_moves.try_into().unwrap(),
     ]
+}
+
+fn gen_pawn_double_masks() -> [bitboard::BitBoard; 64] {
+    let mut masks = [bitboard::BitBoard::new(); 64];
+
+    for s in SQUARES {
+        let rank = Rank::from(s);
+        if rank == Rank::R2 {
+            masks[s as usize].set_bit(Square::from((File::from(s), Rank::R3)));
+        } else if rank == Rank::R7 {
+            masks[s as usize].set_bit(Square::from((File::from(s), Rank::R6)));
+        }
+    }
+
+    masks
 }
 
 fn gen_pawn_capture_move(s: u64, is_white: bool) -> bitboard::BitBoard {

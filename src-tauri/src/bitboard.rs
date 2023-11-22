@@ -60,7 +60,7 @@ impl BitBoard {
         if self.is_empty() {
             None
         } else {
-            Some(Square::try_from(self.0.trailing_zeros() as u8).unwrap())
+            Some(unsafe { std::mem::transmute::<u8, Square>(self.0.trailing_zeros() as u8) })
         }
     }
 
@@ -69,7 +69,7 @@ impl BitBoard {
         if self.is_empty() {
             None
         } else {
-            Some(Square::try_from(63 - self.0.leading_zeros() as u8).unwrap())
+            Some(unsafe { std::mem::transmute::<u8, Square>(63 - self.0.leading_zeros() as u8) })
         }
     }
 
