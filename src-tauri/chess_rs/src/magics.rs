@@ -1,7 +1,7 @@
 use core::panic;
+use std::collections::HashSet;
 
 use rand::Rng;
-use rustc_hash::FxHashSet;
 
 use crate::{
     bitboard::BitBoard,
@@ -75,7 +75,7 @@ fn find_magic(mask: BitBoard, total_blocker_combs: u64) -> Option<(u64, u64)> {
         // For some squares I could probably use less bit shifts but I'm not too concerned
         // about memory.
         let shifts = 12;
-        let mut used: FxHashSet<u64> = FxHashSet::default();
+        let mut used: HashSet<u64> = HashSet::default();
         for raw_blocker in 0..total_blocker_combs {
             let blocker_bitboard = create_blocker_bitboard(mask, raw_blocker);
             let index = apply_magic_number(blocker_bitboard, magic, shifts);
