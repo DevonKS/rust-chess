@@ -277,6 +277,16 @@ impl<'a> Board<'a> {
         }
     }
 
+    pub fn pieces(&self) -> Vec<(Piece, Square)> {
+        PIECES.iter().fold(Vec::new(), |mut acc, p| {
+            for s in self.state.piece_bbs[*p as usize] {
+                acc.push((*p, s));
+            }
+
+            acc
+        })
+    }
+
     fn generate_evasions(&self, legality: Legality) -> Vec<Move> {
         let mut moves = Vec::with_capacity(MAX_MOVES);
 

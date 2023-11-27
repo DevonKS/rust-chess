@@ -9,6 +9,7 @@ edition = "2021"
 regex = "1.10.0"
 bitflags = "2.4.0"
 rand = "0.8.5"
+serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.5.1"

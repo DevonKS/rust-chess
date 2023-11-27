@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 pub const MAX_MOVES: usize = 250;
 
 pub const NOT_A_FILE: u64 = 18374403900871474942;
@@ -57,7 +59,7 @@ pub const POS_6_FEN: &str =
 pub const EN_PASSANT_FEN: &str = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3";
 pub const IN_CHECK_FEN: &str = "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 3";
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 #[repr(u8)]
 pub enum Piece {
     WhiteRook,
@@ -152,7 +154,7 @@ impl TryFrom<char> for Piece {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum PieceKind {
     Rook,
@@ -274,7 +276,7 @@ impl From<Piece> for Player {
 
 pub const PLAYERS: [Player; 2] = [Player::White, Player::Black];
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Move(pub Square, pub Square, pub Option<PieceKind>);
 
 impl fmt::Display for Move {
@@ -515,7 +517,7 @@ impl From<Square> for Rank {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Square {
     A1,

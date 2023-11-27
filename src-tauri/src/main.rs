@@ -3,14 +3,23 @@
 
 use std::{collections::HashMap, sync::Mutex};
 
+use serde::Serialize;
 use uuid::Uuid;
 
 use chess_rs::board;
+use chess_rs::core::{Move, Piece, PieceKind, Square};
 use chess_rs::lookup_tables;
 
-struct State<'a> {
+struct MyState<'a> {
     l: &'a lookup_tables::LookupTables,
     games: Mutex<HashMap<String, board::Board<'a>>>,
+}
+
+#[derive(Serialize)]
+struct GameState {
+    game_id: String,
+    pieces: Vec<(Piece, Square)>,
+    valid_moves: Vec<Move>,
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -20,21 +29,56 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn new_game(state: tauri::State<State>) -> String {
+fn new_game(state: tauri::State<MyState>) -> GameState {
     let id = Uuid::new_v4().to_string();
     let b = board::Board::start_pos(state.l);
+    let pieces = b.pieces();
+    let valid_moves = b.generate_moves(board::Legality::Legal);
     state.games.lock().unwrap().insert(id.clone(), b);
 
-    id
+    GameState {
+        game_id: id,
+        pieces,
+        valid_moves,
+    }
+}
+
+#[tauri::command]
+fn make_move(state: tauri::State<MyState>, id: String, m: String) -> Result<GameState, String> {
+    let m = if m.len() == 4 {
+        let source = Square::try_from(&m[0..2]).unwrap();
+        let dest = Square::try_from(&m[2..]).unwrap();
+        Move(source, dest, None)
+    } else if m.len() == 5 {
+        let source = Square::try_from(&m[0..2]).unwrap();
+        let dest = Square::try_from(&m[2..4]).unwrap();
+        let promotion = Some(PieceKind::try_from(&m[4..]).expect("cannot parse move"));
+        Move(source, dest, promotion)
+    } else {
+        panic!("invalid move");
+    };
+
+    let mut games = state.games.lock().unwrap();
+    let b: &mut board::Board = games.get_mut(&id).ok_or("cannot find game")?;
+    b.apply_move(m);
+
+    Ok(GameState {
+        game_id: id,
+        pieces: b.pieces(),
+        valid_moves: b.generate_moves(board::Legality::Legal),
+    })
 }
 
 fn main() {
-    let l = lookup_tables::LookupTables::generate();
+    let l = Box::new(lookup_tables::LookupTables::generate());
     let games = Mutex::new(HashMap::new());
 
     tauri::Builder::default()
-        .manage(State { l: &l, games })
-        .invoke_handler(tauri::generate_handler![greet, new_game])
+        .manage(MyState {
+            l: Box::leak(l),
+            games,
+        })
+        .invoke_handler(tauri::generate_handler![greet, new_game, make_move])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

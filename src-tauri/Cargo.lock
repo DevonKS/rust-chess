@@ -299,6 +299,7 @@ dependencies = [
  "bitflags 2.4.1",
  "rand 0.8.5",
  "regex",
+ "serde",
 ]
 
 [[package]]
