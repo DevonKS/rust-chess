@@ -68,7 +68,7 @@ fn gen_magic() -> u64 {
 fn find_magic(mask: BitBoard, total_blocker_combs: u64) -> Option<(u64, u64)> {
     'magics: for _ in 0..100_000_000 {
         let magic = gen_magic();
-        if ((mask * magic) & 0xFF00000000000000).pop_count() < 6 {
+        if (mask.wrapping_mul(magic) & 0xFF00000000000000).pop_count() < 6 {
             continue;
         }
 

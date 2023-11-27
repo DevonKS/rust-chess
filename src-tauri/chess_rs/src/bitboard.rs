@@ -77,6 +77,11 @@ impl BitBoard {
     pub fn pop_count(&self) -> u32 {
         self.0.count_ones()
     }
+
+    #[inline(always)]
+    pub fn wrapping_mul(&self, n: u64) -> BitBoard {
+        BitBoard(self.0.wrapping_mul(n))
+    }
 }
 
 macro_rules! impl_indv_bit_ops {
