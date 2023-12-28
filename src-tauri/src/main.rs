@@ -20,6 +20,7 @@ struct GameState {
     game_id: String,
     pieces: Vec<(Piece, Square)>,
     valid_moves: Vec<Move>,
+    moves: Vec<String>,
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -34,12 +35,14 @@ fn new_game(state: tauri::State<MyState>) -> GameState {
     let b = board::Board::start_pos(state.l);
     let pieces = b.pieces();
     let valid_moves = b.generate_moves(board::Legality::Legal);
+    let moves = b.san_moves.clone();
     state.games.lock().unwrap().insert(id.clone(), b);
 
     GameState {
         game_id: id,
         pieces,
         valid_moves,
+        moves,
     }
 }
 
@@ -60,12 +63,17 @@ fn make_move(state: tauri::State<MyState>, id: String, m: String) -> Result<Game
 
     let mut games = state.games.lock().unwrap();
     let b: &mut board::Board = games.get_mut(&id).ok_or("cannot find game")?;
-    b.apply_move(m);
+    let valid_moves_before = b.generate_moves(board::Legality::Legal);
+    b.apply_move(m, &valid_moves_before);
+
+    let valid_moves = b.generate_moves(board::Legality::Legal);
+    let moves = b.san_moves.clone();
 
     Ok(GameState {
         game_id: id,
         pieces: b.pieces(),
-        valid_moves: b.generate_moves(board::Legality::Legal),
+        valid_moves,
+        moves,
     })
 }
 

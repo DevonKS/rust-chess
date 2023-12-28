@@ -302,7 +302,7 @@ function makeMove(boardState: IMap<string>, gameState: any, oldSquare: string, n
       newBoardState = newBoardState.delete("selectedPiece").delete("moveHints");
     }
 
-    newBoardState.set("moveHints", gameState["validMoves"].get(newBoardState.getIn(["selectedPiece", 1])));
+    newBoardState = newBoardState.set("moveHints", gameState["validMoves"].get(newBoardState.getIn(["selectedPiece", 1])));
 
     return [newBoardState, undefined];
   }
@@ -394,7 +394,7 @@ function handleMouseMove(e: React.MouseEvent<HTMLElement>, _: Map<string, string
     const [offsetX, offsetY] = boardState.getIn(["dragState", "offset"]);
     const newX = coordX - offsetX;
     const newY = coordY - offsetY;
-    return boardState.setIn(["dragState", "coords"], [newX, newY]);
+    return [boardState.setIn(["dragState", "coords"], [newX, newY])];
   }
 
   return [boardState, undefined];
@@ -438,20 +438,15 @@ function handleMouseEvent(
   clickState: Map<string,
     string>,
   gameState: any,
-  setGameState: Function,
   boardState: IMap<string>,
   setBoardState: Function,
+  make_move: Function,
   f: Function,
 ) {
-
   const [newBoardState, newMove] = f(e, clickState, gameState, boardState);
   setBoardState(newBoardState);
   if (newMove) {
-    invoke('make_move', { id: gameState["gameId"], m: newMove })
-      .then((res) => {
-        setGameState(mapGameState(res));
-      })
-      .catch((error) => console.error(error));
+    make_move(newMove);
   }
 }
 
@@ -463,76 +458,41 @@ function makeDefaultBoardState() {
   });
 }
 
-function mapGameState(gameState: any) {
-  let pieceMapping = new IMap<string, string>(
-    {
-      "WhitePawn": "P",
-      "WhiteRook": "R",
-      "WhiteKnight": "N",
-      "WhiteBishop": "B",
-      "WhiteQueen": "Q",
-      "WhiteKing": "K",
-      "BlackPawn": "p",
-      "BlackRook": "r",
-      "BlackKnight": "n",
-      "BlackBishop": "b",
-      "BlackQueen": "q",
-      "BlackKing": "k",
-    }
-  );
-  let newState = {
-    "gameId": gameState["game_id"],
-    "pieces": gameState["pieces"].map(([p, s]) => [pieceMapping.get(p), s.toLowerCase()]),
-    "validMoves": gameState["valid_moves"].reduce(
-      (acc, [from, to]) => {
-        from = from.toLowerCase();
-        to = to.toLowerCase();
-        if (!acc.has(from)) {
-          return acc.set(from, IList<string>([to]));
-        } else {
-          return acc.update(from, (l) => l.push(to));
-        }
-      },
-      new IMap<string, string[]>(),
-    ),
-  };
-  return newState;
+type BoardProps = {
+  gameState: {
+    gameId: string,
+    pieces: IList<IList<string>>,
+    validMoves: IMap<string, string[]>,
+  },
+  makeMove: Function,
 }
 
-function Board() {
+function Board(props: BoardProps) {
   // FIXME: Will having all the state in one map have performance implications for rendering. i.e. will it still be able to do smart things like see that only arrows has changed.
   const [boardState, setBoardState] = useState(makeDefaultBoardState());
-  const [gameState, setGameState] = useState({ "pieces": new IList<IList<string>>() });
-
-  useEffect(() => {
-    invoke('new_game').then((res) => {
-      let newState = mapGameState(res);
-      setGameState(newState);
-    });
-  }, []);
+  let gameState = props.gameState;
+  let makeMove = props.makeMove;
 
   let clickState = new Map<string, string>();
 
   return (
-    <div className="container">
-      <h1>Welcome to Rust Chess!</h1>
-
+    <div className="board">
       <svg
         id="chess-board-svg"
         width="800"
         height="800"
         viewBox="0 0 800 800"
-        onMouseDown={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, setGameState, boardState, setBoardState, handleMouseDown)}
-        onMouseMove={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, setGameState, boardState, setBoardState, handleMouseMove)}
-        onMouseUp={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, setGameState, boardState, setBoardState, handleMouseUp)}
+        onMouseDown={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, handleMouseDown)}
+        onMouseMove={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, handleMouseMove)}
+        onMouseUp={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, handleMouseUp)}
         onContextMenu={(e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); }}
       >
         {drawBoardSquares(boardState)}
         {drawFileCoordinates()}
         {drawRankCoordinates()}
         {drawArrows(boardState.get("arrows"))}
-        {drawPieces(gameState["pieces"], boardState.get("dragState"))}
         {drawMoveHints(boardState.get("moveHints"))}
+        {drawPieces(gameState["pieces"], boardState.get("dragState"))}
       </svg>
     </div>
   );

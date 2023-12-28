@@ -1,0 +1,5 @@
+div.game {
+  display: grid;
+  grid: "board side-panel" 1fr / 1fr auto;
+  gap: 0px 8px;
+}

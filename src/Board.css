@@ -1,3 +1,11 @@
+div.board {
+  grid-area: board;
+}
+
+svg#chess-board-svg {
+  display: block;
+}
+
 rect.square-dark {
 	fill: #5e81ac;
 }

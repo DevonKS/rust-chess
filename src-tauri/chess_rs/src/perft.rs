@@ -27,11 +27,11 @@ fn inner_perft(b: &mut board::Board, depth: u8, print_results: bool) -> u64 {
 
     let mut count = 0;
 
-    for m in moves {
+    for m in moves.iter() {
         let count_for_move = if depth == 1 {
             1
         } else {
-            b.apply_move(m);
+            b.apply_move(*m, &moves);
             let n = inner_perft(b, depth - 1, false);
             b.undo_move();
             n

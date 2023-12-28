@@ -1,13 +1,13 @@
-import { useState } from "react";
 import "./App.css";
 
-import Board from "./Board";
+import Game from "./Game";
 
 
 function App() {
   return (
     <div className="container">
-      <Board />
+      <h1>Welcome to Rust Chess!</h1>
+      <Game />
     </div>
   );
 }

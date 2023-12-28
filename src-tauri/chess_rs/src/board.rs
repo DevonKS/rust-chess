@@ -91,6 +91,8 @@ struct BoardState {
 pub struct Board<'a> {
     state: BoardState,
     previous_states: Vec<BoardState>,
+    pub moves: Vec<Move>,
+    pub san_moves: Vec<String>,
     lookup_tables: &'a lookup_tables::LookupTables,
 }
 
@@ -110,6 +112,8 @@ impl<'a> Board<'a> {
                 pinned_pieces: BitBoard::new(),
             },
             previous_states: Vec::new(),
+            moves: Vec::new(),
+            san_moves: Vec::new(),
             lookup_tables: l,
         }
     }
@@ -265,6 +269,8 @@ impl<'a> Board<'a> {
         Board {
             state: self.state,
             previous_states: Vec::new(),
+            moves: Vec::new(),
+            san_moves: Vec::new(),
             lookup_tables: self.lookup_tables,
         }
     }
@@ -548,7 +554,7 @@ impl<'a> Board<'a> {
         }
     }
 
-    pub fn apply_move(&mut self, m: Move) {
+    pub fn apply_move(&mut self, m: Move, legal_moves: &[Move]) {
         self.previous_states.push(self.state);
 
         let moved_piece = self.get_piece(m.0).unwrap();
@@ -718,10 +724,95 @@ impl<'a> Board<'a> {
         self.state.checkers = checkers;
         self.state.attacked_squares = attacked_squares;
         self.state.pinned_pieces = pinned_pieces;
+
+        self.moves.push(m);
+        self.san_moves.push(self.uci_to_san_move(&m, legal_moves));
     }
 
     pub fn undo_move(&mut self) {
         self.state = self.previous_states.pop().unwrap();
+        self.moves.pop();
+        self.san_moves.pop();
+    }
+
+    // FIXME: Things I still need to handle:
+    // * If the move is checkmate
+    pub fn uci_to_san_move(&self, m: &Move, legal_moves: &[Move]) -> String {
+        if *m == Move(Square::E1, Square::G1, None) || *m == Move(Square::E8, Square::G8, None) {
+            return "O-O".to_string();
+        } else if *m == Move(Square::E1, Square::C1, None)
+            || *m == Move(Square::E8, Square::C8, None)
+        {
+            return "O-O-O".to_string();
+        }
+
+        let moved_piece = PIECES
+            .into_iter()
+            .find(|p| self.previous_states.last().unwrap().piece_bbs[*p as usize].get_bit(m.0))
+            .unwrap();
+        let moved_piece_kind = PieceKind::from(moved_piece);
+        let possible_moves = legal_moves
+            .iter()
+            .filter(|lm| {
+                lm.1 == m.1
+                    && moved_piece_kind
+                        == PieceKind::from(
+                            PIECES
+                                .into_iter()
+                                .find(|p| {
+                                    self.previous_states.last().unwrap().piece_bbs[*p as usize]
+                                        .get_bit(lm.0)
+                                })
+                                .unwrap(),
+                        )
+            })
+            .collect::<Vec<&Move>>();
+        let is_ambigious = possible_moves.len() > 1;
+        let is_capture = PIECES
+            .into_iter()
+            .any(|p| self.previous_states.last().unwrap().piece_bbs[p as usize].get_bit(m.1));
+
+        let mut san_move = String::new();
+
+        if moved_piece_kind != PieceKind::Pawn {
+            san_move.push_str(&moved_piece_kind.to_string().to_uppercase());
+        }
+
+        if *m == Move(Square::G1, Square::F3, None) {
+            println!("{}, {:?}, {}", m, possible_moves, is_ambigious);
+        }
+
+        let mut has_source_file = false;
+        if (is_ambigious
+            && !possible_moves
+                .iter()
+                .all(|pm| File::from(pm.0) == File::from(possible_moves[0].0)))
+            || (moved_piece_kind == PieceKind::Pawn && is_capture)
+        {
+            has_source_file = true;
+            san_move.push_str(&File::from(m.0).to_string());
+        }
+
+        if is_ambigious && !has_source_file {
+            san_move.push_str(&Rank::from(m.0).to_string());
+        }
+
+        if is_capture {
+            san_move.push('x');
+        }
+
+        san_move.push_str(&m.1.to_string());
+
+        if let Some(p) = m.2 {
+            san_move.push('=');
+            san_move.push_str(&p.to_string().to_uppercase());
+        }
+
+        if !self.state.checkers.is_empty() {
+            san_move.push('+');
+        }
+
+        san_move
     }
 
     fn get_check_info(&self) -> (BitBoard, BitBoard, BitBoard) {
@@ -1144,11 +1235,13 @@ mod tests {
         bitboard,
         board::{Board, BoardState, Castling},
         core::{
-            Player, Square, EN_PASSANT_FEN, IN_CHECK_FEN, POS_2_KIWIPETE_FEN, POS_3_FEN, POS_5_FEN,
-            POS_6_FEN, STARTING_POS_FEN,
+            Move, PieceKind, Player, Square, EN_PASSANT_FEN, IN_CHECK_FEN, POS_2_KIWIPETE_FEN,
+            POS_3_FEN, POS_5_FEN, POS_6_FEN, STARTING_POS_FEN,
         },
         lookup_tables::LookupTables,
     };
+
+    use super::Legality;
 
     const STARTING_BOARD_STATE: BoardState = BoardState {
         turn: Player::White,
@@ -1476,5 +1569,46 @@ mod tests {
 
             assert_eq!(b.fen(), test_case.expected_fen, "{} failed", test_case.name);
         }
+    }
+
+    #[test]
+    fn uci_to_san_move_test() {
+        let l = LookupTables::generate();
+        let mut b = Board::start_pos(&l);
+
+        let moves = [
+            Move(Square::E2, Square::E4, None),
+            Move(Square::E7, Square::E5, None),
+            Move(Square::G1, Square::F3, None),
+            Move(Square::G8, Square::F6, None),
+            Move(Square::B1, Square::C3, None),
+            Move(Square::B8, Square::C6, None),
+            Move(Square::F1, Square::B5, None),
+            Move(Square::D7, Square::D6, None),
+            Move(Square::B5, Square::C6, None),
+            Move(Square::B7, Square::C6, None),
+            Move(Square::H2, Square::H4, None),
+            Move(Square::C6, Square::C5, None),
+            Move(Square::H4, Square::H5, None),
+            Move(Square::C8, Square::B7, None),
+            Move(Square::H5, Square::H6, None),
+            Move(Square::F6, Square::D7, None),
+            Move(Square::H6, Square::G7, None),
+            Move(Square::D7, Square::B6, None),
+            Move(Square::G7, Square::H8, Some(PieceKind::Queen)),
+        ];
+
+        for m in moves {
+            let legal_moves = b.generate_moves(Legality::Legal);
+            b.apply_move(m, &legal_moves);
+        }
+
+        assert_eq!(
+            b.san_moves,
+            [
+                "e4", "e5", "Nf3", "Nf6", "Nc3", "Nc6", "Bb5", "d6", "Bxc6+", "bxc6", "h4", "c5",
+                "h5", "Bb7", "h6", "Nd7", "hxg7", "Nb6", "gxh8=Q"
+            ]
+        );
     }
 }
