@@ -778,10 +778,6 @@ impl<'a> Board<'a> {
             san_move.push_str(&moved_piece_kind.to_string().to_uppercase());
         }
 
-        if *m == Move(Square::G1, Square::F3, None) {
-            println!("{}, {:?}, {}", m, possible_moves, is_ambigious);
-        }
-
         let mut has_source_file = false;
         if (is_ambigious
             && !possible_moves

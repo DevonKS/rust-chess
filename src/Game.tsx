@@ -34,7 +34,11 @@ function mapGameState(gameState: any) {
         if (!acc.has(from)) {
           return acc.set(from, IList<string>([to]));
         } else {
-          return acc.update(from, (l) => l.push(to));
+          if (!acc.get(from).includes(to)) {
+            return acc.update(from, (l) => l.push(to));
+          } else {
+            return acc;
+          }
         }
       },
       new IMap<string, string[]>(),
@@ -45,30 +49,46 @@ function mapGameState(gameState: any) {
 }
 
 function Game() {
-  const [gameState, setGameState] = useState({ "pieces": new IList<IList<string>>(), "moves": [], });
+  const [gameStates, setGameStates] = useState(new IList([{ "pieces": new IList<IList<string>>(), "moves": [], }]));
+  const [moves, setMoves] = useState(new IList([[]]));
+  const [currentGameState, setCurrentGameState] = useState(0);
+  const [flipped, setFlipped] = useState(false);
 
   useEffect(() => {
     invoke('new_game').then((res) => {
       let newState = mapGameState(res);
-      setGameState(newState);
+      setGameStates(gameStates.push(newState));
+      setMoves(moves.push([]));
+      setCurrentGameState(currentGameState + 1);
     });
   }, []);
 
-  console.log(gameState.moves);
-
   // FIXME: need to handle promotions
   let makeMove = function(m: string) {
-    invoke('make_move', { id: gameState["gameId"], m: m })
+    invoke('make_move', { id: gameStates.last()["gameId"], m: m })
       .then((res) => {
-        setGameState(mapGameState(res));
+        let newState = mapGameState(res);
+        setGameStates(gameStates.push(newState));
+        setMoves(moves.push([m.substring(0, 2), m.substring(2, 4)]));
+        setCurrentGameState(currentGameState + 1);
       })
       .catch((error) => console.error(error));
   }
 
   return (
     <div className="game">
-      <Board gameState={gameState} makeMove={makeMove} />
-      <SidePanel moves={gameState.moves} />
+      <Board
+        gameState={gameStates.get(currentGameState)}
+        lastMove={moves.get(currentGameState)}
+        makeMove={makeMove}
+        canMove={currentGameState == gameStates.size - 1}
+        flipped={flipped} />
+      <SidePanel
+        moves={gameStates.last().moves}
+        currentGameState={currentGameState}
+        setCurrentGameState={setCurrentGameState}
+        numGameStates={gameStates.size}
+        toggleFlipped={() => setFlipped(!flipped)} />
     </div>
   );
 }

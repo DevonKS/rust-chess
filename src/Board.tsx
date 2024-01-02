@@ -1,5 +1,6 @@
 import { Map as IMap, Set as ISet, List as IList, is } from 'immutable';
 import React, { useState, useEffect } from "react";
+import Modal from 'react-modal';
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./Board.css";
@@ -10,6 +11,13 @@ const xToFile = new IMap<number, string>([[0, "a"], [100, "b"], [200, "c"], [300
 const yToRank = new IMap<number, string>([[700, "1"], [600, "2"], [500, "3"], [400, "4"], [300, "5"], [200, "6"], [100, "7"], [0, "8"]]);
 const fileToX = new IMap<string, number>([["a", 0], ["b", 100], ["c", 200], ["d", 300], ["e", 400], ["f", 500], ["g", 600], ["h", 700]]);
 const rankToY = new IMap<string, number>([["1", 700], ["2", 600], ["3", 500], ["4", 400], ["5", 300], ["6", 200], ["7", 100], ["8", 0]]);
+
+const colToFileFlipped = new IMap<number, string>([[0, "h"], [1, "g"], [2, "f"], [3, "e"], [4, "d"], [5, "c"], [6, "b"], [7, "a"]]);
+const rowToRankFlipped = new IMap<number, string>([[0, "1"], [1, "2"], [2, "3"], [3, "4"], [4, "5"], [5, "6"], [6, "7"], [7, "8"]]);
+const xToFileFlipped = new IMap<number, string>([[0, "h"], [100, "g"], [200, "f"], [300, "e"], [400, "d"], [500, "c"], [600, "b"], [700, "a"]]);
+const yToRankFlipped = new IMap<number, string>([[700, "8"], [600, "7"], [500, "6"], [400, "5"], [300, "4"], [200, "3"], [100, "2"], [0, "1"]]);
+const fileToXFlipped = new IMap<string, number>([["h", 0], ["g", 100], ["f", 200], ["e", 300], ["d", 400], ["c", 500], ["b", 600], ["a", 700]]);
+const rankToYFlipped = new IMap<string, number>([["8", 700], ["7", 600], ["6", 500], ["5", 400], ["4", 300], ["3", 200], ["2", 100], ["1", 0]]);
 
 const theme = "Neo";
 const themeToFiletype = new IMap<string, string>([["Neo", "png"]]);
@@ -28,22 +36,40 @@ const pieceToPieceFilename = new IMap<string, string>([
   ["P", "wP"],
 ]);
 
-function rowColToSquare([row, col]: number[]): string {
-  if (!colToFile.has(col) || !rowToRank.has(row)) {
-    throw new Error('Invalid col or row');
+function rowColToSquare([row, col]: number[], flipped: boolean): string {
+  if (flipped) {
+    if (!colToFileFlipped.has(col) || !rowToRankFlipped.has(row)) {
+      throw new Error('Invalid col or row');
+    }
+    return colToFileFlipped.get(col)! + rowToRankFlipped.get(row)!;
+  } else {
+    if (!colToFile.has(col) || !rowToRank.has(row)) {
+      throw new Error('Invalid col or row');
+    }
+    return colToFile.get(col)! + rowToRank.get(row)!;
   }
-  return colToFile.get(col)! + rowToRank.get(row)!;
 }
 
-function coordsToSquare([x, y]: number[]): string {
-  if (!xToFile.has(x) || !yToRank.has(y)) {
-    throw new Error('Invalid x or y coord');
+function coordsToSquare([x, y]: number[], flipped: boolean): string {
+  if (flipped) {
+    if (!xToFileFlipped.has(x) || !yToRankFlipped.has(y)) {
+      throw new Error('Invalid x or y coord');
+    }
+    return xToFileFlipped.get(x)! + yToRankFlipped.get(y)!;
+  } else {
+    if (!xToFile.has(x) || !yToRank.has(y)) {
+      throw new Error('Invalid x or y coord');
+    }
+    return xToFile.get(x)! + yToRank.get(y)!;
   }
-  return xToFile.get(x)! + yToRank.get(y)!;
 }
 
-function squareToCoords(square: string): [number, number] {
-  return [fileToX.get(square[0])!, rankToY.get(square[1])!];
+function squareToCoords(square: string, flipped: boolean): [number, number] {
+  if (flipped) {
+    return [fileToXFlipped.get(square[0])!, rankToYFlipped.get(square[1])!];
+  } else {
+    return [fileToX.get(square[0])!, rankToY.get(square[1])!];
+  }
 }
 
 function getSvgCoords(e: React.MouseEvent<HTMLElement>) {
@@ -61,10 +87,10 @@ function normaliseCoords([x, y]: number[]): number[] {
   return [(100 * Math.floor(x / 100)), (100 * Math.floor(y / 100))]
 }
 
-function getSquare(e: React.MouseEvent<HTMLElement>) {
+function getSquare(e: React.MouseEvent<HTMLElement>, flipped: boolean) {
   const svgCoords = getSvgCoords(e);
   const coords = normaliseCoords(svgCoords);
-  const square = coordsToSquare(coords);
+  const square = coordsToSquare(coords, flipped);
   return square;
 }
 
@@ -74,9 +100,9 @@ function getPieceHref(piece: string): string {
   return `img/pieces/${theme}/${pieceFilename}.${themeFiletype}`;
 }
 
-function getKnightArrowPointsAndRotateAngle(sourceSquare: string, destSquare: string): [number[][], number] {
-  let [x, y] = squareToCoords(sourceSquare);
-  let [destX, destY] = squareToCoords(destSquare);
+function getKnightArrowPointsAndRotateAngle(sourceSquare: string, destSquare: string, flipped: boolean): [number[][], number] {
+  let [x, y] = squareToCoords(sourceSquare, flipped);
+  let [destX, destY] = squareToCoords(destSquare, flipped);
   x += 50;
   y += 50;
   destX += 50;
@@ -141,9 +167,9 @@ function getKnightArrowPointsAndRotateAngle(sourceSquare: string, destSquare: st
   return [points, rotateAngle];
 }
 
-function getStraightArrowPointsAndRotateAngle(sourceSquare: string, destSquare: string): [number[][], number] {
-  let [x, y] = squareToCoords(sourceSquare);
-  let [destX, destY] = squareToCoords(destSquare);
+function getStraightArrowPointsAndRotateAngle(sourceSquare: string, destSquare: string, flipped: boolean): [number[][], number] {
+  let [x, y] = squareToCoords(sourceSquare, flipped);
+  let [destX, destY] = squareToCoords(destSquare, flipped);
   x += 50;
   y += 50;
   destX += 50;
@@ -167,9 +193,9 @@ function getStraightArrowPointsAndRotateAngle(sourceSquare: string, destSquare: 
 }
 
 
-function isKnightMove(sourceSquare: string, destSquare: string): boolean {
-  const [x, y] = squareToCoords(sourceSquare);
-  const [destX, destY] = squareToCoords(destSquare);
+function isKnightMove(sourceSquare: string, destSquare: string, flipped: boolean): boolean {
+  const [x, y] = squareToCoords(sourceSquare, flipped);
+  const [destX, destY] = squareToCoords(destSquare, flipped);
   return (x == destX - 100 && y == destY - 200) ||
     (x == destX - 200 && y == destY - 100) ||
     (x == destX + 100 && y == destY - 200) ||
@@ -180,7 +206,7 @@ function isKnightMove(sourceSquare: string, destSquare: string): boolean {
     (x == destX + 100 && y == destY + 200);
 }
 
-function drawBoardSquares(boardState: IMap<string>) {
+function drawBoardSquares(boardState: IMap<string>, flipped: boolean) {
   let squareClasses = boardState.get("squareClasses");
   if (boardState.hasIn(["dragState", "piece"])) {
     squareClasses = squareClasses.set(boardState.getIn(["dragState", "piece", 1]), "original-square");
@@ -202,7 +228,7 @@ function drawBoardSquares(boardState: IMap<string>) {
     const column = i % 8
     const x = column * 100;
     const y = row * 100;
-    const square = rowColToSquare([row, column]);
+    const square = rowColToSquare([row, column], flipped);
 
     let c = "";
     if (squareClasses.has(square)) {
@@ -217,39 +243,40 @@ function drawBoardSquares(boardState: IMap<string>) {
   });
 }
 
-function drawFileCoordinates() {
+function drawFileCoordinates(flipped: boolean) {
   return Array.from({ length: 8 }, (_, i) => {
     const j = i + 1;
     const offset = i * 100
     const c = j % 2 == 0 ? "coordinate-dark" : "coordinate-light";
-    const file = colToFile.get(i)
+    const file = flipped ? colToFile.get(7 - i) : colToFile.get(i);
     return (<text className={c} key={file + offset} fontSize="20" x={offset + 80} y="795" >{file}</text>);
   });
 }
 
-function drawRankCoordinates() {
+function drawRankCoordinates(flipped: boolean) {
   return Array.from({ length: 8 }, (_, i) => {
     const j = i + 1;
     const offset = 800 - (j * 100)
     const c = j % 2 == 0 ? "coordinate-dark" : "coordinate-light";
-    return (<text className={c} key={j + offset} fontSize="20" x="5" y={offset + 20}>{j}</text>);
+    const rank = flipped ? 9 - j : j;
+    return (<text className={c} key={j + offset} fontSize="20" x="5" y={offset + 20}>{rank}</text>);
   });
 }
 
 
-function drawArrow(sourceSquare: string, destSquare: string) {
+function drawArrow(sourceSquare: string, destSquare: string, flipped: boolean) {
   const id = sourceSquare + destSquare;
 
-  let [x, y] = squareToCoords(sourceSquare);
+  let [x, y] = squareToCoords(sourceSquare, flipped);
   x += 50;
   y += 50;
 
   let points = [];
   let rotateAngle = 0;
-  if (isKnightMove(sourceSquare, destSquare)) {
-    [points, rotateAngle] = getKnightArrowPointsAndRotateAngle(sourceSquare, destSquare);
+  if (isKnightMove(sourceSquare, destSquare, flipped)) {
+    [points, rotateAngle] = getKnightArrowPointsAndRotateAngle(sourceSquare, destSquare, flipped);
   } else {
-    [points, rotateAngle] = getStraightArrowPointsAndRotateAngle(sourceSquare, destSquare);
+    [points, rotateAngle] = getStraightArrowPointsAndRotateAngle(sourceSquare, destSquare, flipped);
   }
 
   const pointsStr = points.map(x => x.join(" ")).join(",");
@@ -257,8 +284,8 @@ function drawArrow(sourceSquare: string, destSquare: string) {
   return (<polygon id={id} key={id} className="arrow" points={pointsStr} transform={transform} />);
 }
 
-function drawArrows(arrows: ISet<IList<string>>) {
-  return arrows.map(([sourceSquare, destSquare]: IList<string>) => drawArrow(sourceSquare, destSquare));
+function drawArrows(arrows: ISet<IList<string>>, flipped: boolean) {
+  return arrows.map(([sourceSquare, destSquare]: IList<string>) => drawArrow(sourceSquare, destSquare, flipped));
 }
 
 function drawPiece(piece: string, square: string, [x, y]: [number, number]) {
@@ -267,20 +294,20 @@ function drawPiece(piece: string, square: string, [x, y]: [number, number]) {
   return (<image id={id} key={id} x={x} y={y} width="100" height="100" draggable="true" href={pieceHref} />);
 }
 
-function drawPieces(pieces: ISet<IList<string>>, dragState: IMap<string>) {
+function drawPieces(pieces: ISet<IList<string>>, dragState: IMap<string>, flipped: boolean) {
   return pieces.map(([piece, square]: IList<string>) => {
     if (square == dragState.getIn(["piece", 1])) {
       return drawPiece(piece, square, dragState.get("coords"));
     } else {
-      return drawPiece(piece, square, squareToCoords(square));
+      return drawPiece(piece, square, squareToCoords(square, flipped));
     }
   });
 }
 
-function drawMoveHints(moveHints: string[]) {
+function drawMoveHints(moveHints: string[], flipped: boolean) {
   if (moveHints) {
     return moveHints.map((hintSquare: string) => {
-      let [x, y] = squareToCoords(hintSquare);
+      let [x, y] = squareToCoords(hintSquare, flipped);
       x += 50;
       y += 50
       return (<circle key={hintSquare + "MoveHint"} cx={x} cy={y} r="15" className="move-hint" />);
@@ -288,13 +315,23 @@ function drawMoveHints(moveHints: string[]) {
   }
 }
 
-function makeMove(boardState: IMap<string>, gameState: any, oldSquare: string, newSquare: string, clickMove: boolean): IMap<string> {
+function makeMove(boardState: IMap<string>, gameState: any, oldSquare: string, newSquare: string, clickMove: boolean, openModel: Function): IMap<string> {
   if ((gameState["validMoves"].has(oldSquare)) && gameState["validMoves"].get(oldSquare).includes(newSquare)) {
-    return [boardState
-      .set("dragState", new IMap<string>())
-      .delete("selectedPiece")
-      .delete("moveHints")
-      .set("lastMove", [oldSquare, newSquare]), `${oldSquare}${newSquare}`];
+    let piece = boardState.getIn(["selectedPiece", 0]);
+    let promotion = (piece === "P" && oldSquare[1] == "7" && newSquare[1] == "8") ||
+      (piece === "p" && oldSquare[1] == "2" && newSquare[1] == "1");
+    if (promotion) {
+      openModel({ "isWhite": piece === "P", "move": `${oldSquare}${newSquare}` });
+      return [boardState
+        .set("dragState", new IMap<string>())
+        .delete("selectedPiece")
+        .delete("moveHints"), undefined];
+    } else {
+      return [boardState
+        .set("dragState", new IMap<string>())
+        .delete("selectedPiece")
+        .delete("moveHints"), `${oldSquare}${newSquare}`];
+    }
   } else {
     let newBoardState = boardState
       .set("dragState", new IMap<string>());
@@ -308,13 +345,12 @@ function makeMove(boardState: IMap<string>, gameState: any, oldSquare: string, n
   }
 }
 
-// FIXME: This is broken for some reason
-function handleDrag(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, gameState: any): IMap<string> {
+function handleDrag(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, gameState: any, flipped: boolean): IMap<string> {
   const target = e.target;
   const pieceX = parseFloat(target.getAttributeNS("", "x"));
   const pieceY = parseFloat(target.getAttributeNS("", "y"));
   const [x, y] = getSvgCoords(e);
-  const square = getSquare(e);
+  const square = getSquare(e, flipped);
   const offsetX = x - pieceX;
   const offsetY = y - pieceY;
 
@@ -328,11 +364,11 @@ function handleDrag(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, 
     .set("moveHints", gameState["validMoves"].get(square));
 }
 
-function handleMakeMove(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, gameState: any): IMap<string> {
+function handleMakeMove(e: React.MouseEvent<HTMLElement>, boardState: IMap<string>, gameState: any, flipped: boolean, openModel: Function): IMap<string> {
   if (boardState.has("selectedPiece")) {
     const oldSquare = boardState.getIn(["selectedPiece", 1]);
-    const newSquare = getSquare(e);
-    return makeMove(boardState, gameState, oldSquare, newSquare, true);
+    const newSquare = getSquare(e, flipped);
+    return makeMove(boardState, gameState, oldSquare, newSquare, true, openModel);
   }
 
   return [boardState, undefined];
@@ -366,30 +402,35 @@ function handleArrows(downSquare: string, upSquare: string, boardState: IMap<str
   }
 }
 
-function handleMouseDown(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, gameState: any, boardState: IMap<string>): IMap<String> {
+function handleMouseDown(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, gameState: any, boardState: IMap<string>, canMove: boolean, flipped: boolean, openModel: Function): IMap<String> {
   if (e.button == 0) { // Left Click
     let newBoardState = boardState
       .set("arrows", new ISet<IList<string>>())
       .set("squareClasses", new IMap<string, string>());
-    let newMove = undefined;
 
-    if (e.target.attributes.draggable) {
-      newBoardState = handleDrag(e, newBoardState, gameState);
+    if (canMove) {
+      let newMove = undefined;
+
+      if (e.target.attributes.draggable) {
+        newBoardState = handleDrag(e, newBoardState, gameState, flipped);
+      } else {
+        [newBoardState, newMove] = handleMakeMove(e, newBoardState, gameState, flipped, openModel);
+      }
+
+      e.preventDefault();
+      return [newBoardState, newMove];
     } else {
-      [newBoardState, newMove] = handleMakeMove(e, newBoardState, gameState);
+      return [newBoardState, undefined];
     }
-
-    e.preventDefault();
-    return [newBoardState, newMove];
   } else if (e.button == 2) { // Right Click
-    clickState.set("right-mouse-down-square", getSquare(e));
+    clickState.set("right-mouse-down-square", getSquare(e, flipped));
   }
 
   return [boardState, undefined];
 }
 
-function handleMouseMove(e: React.MouseEvent<HTMLElement>, _: Map<string, string>, __: any, boardState: IMap<string>): IMap<string> {
-  if (boardState.hasIn(["dragState", "piece"])) {
+function handleMouseMove(e: React.MouseEvent<HTMLElement>, _: Map<string, string>, __: any, boardState: IMap<string>, canMove: boolean, flipped: boolean, openModel: Function): IMap<string> {
+  if (boardState.hasIn(["dragState", "piece"]) && canMove) {
     const [coordX, coordY] = getSvgCoords(e);
     const [offsetX, offsetY] = boardState.getIn(["dragState", "offset"]);
     const newX = coordX - offsetX;
@@ -400,27 +441,27 @@ function handleMouseMove(e: React.MouseEvent<HTMLElement>, _: Map<string, string
   return [boardState, undefined];
 }
 
-function handleMouseUp(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, gameState: any, boardState: IMap<string>): IMap<string> {
+function handleMouseUp(e: React.MouseEvent<HTMLElement>, clickState: Map<string, string>, gameState: any, boardState: IMap<string>, canMove: boolean, flipped: boolean, openModel: Function): IMap<string> {
   let newBoardState = boardState;
   let newMove = undefined;
 
-  if (e.button == 0 && newBoardState.hasIn(["dragState", "piece"])) { // Left Click
+  if (e.button == 0 && newBoardState.hasIn(["dragState", "piece"]) && canMove) { // Left Click
     const dragPiece = newBoardState.getIn(["dragState", "piece"]);
     const oldSquare = dragPiece[1];
-    const newSquare = getSquare(e);
+    const newSquare = getSquare(e, flipped);
     if (oldSquare == newSquare) {
       newBoardState = newBoardState
         .set("dragState", new IMap<string>())
         .set("moveHints", gameState["validMoves"].get(oldSquare));
     } else {
-      [newBoardState, newMove] = makeMove(newBoardState, gameState, oldSquare, newSquare, false);
+      [newBoardState, newMove] = makeMove(newBoardState, gameState, oldSquare, newSquare, false, openModel);
     }
   } else if (e.button == 2) { // Right Click
     e.preventDefault();
 
     if (clickState.has("right-mouse-down-square")) {
       const downSquare: string = clickState.get("right-mouse-down-square")!;
-      const upSquare: string = getSquare(e);
+      const upSquare: string = getSquare(e, flipped);
       if (downSquare == upSquare) {
         newBoardState = handleHighlight(e, upSquare, newBoardState);
       } else {
@@ -440,13 +481,16 @@ function handleMouseEvent(
   gameState: any,
   boardState: IMap<string>,
   setBoardState: Function,
-  make_move: Function,
+  makeMove: Function,
+  canMove: boolean,
+  flipped: boolean,
+  openModel: Function,
   f: Function,
 ) {
-  const [newBoardState, newMove] = f(e, clickState, gameState, boardState);
+  const [newBoardState, newMove] = f(e, clickState, gameState, boardState, canMove, flipped, openModel);
   setBoardState(newBoardState);
   if (newMove) {
-    make_move(newMove);
+    makeMove(newMove);
   }
 }
 
@@ -464,35 +508,82 @@ type BoardProps = {
     pieces: IList<IList<string>>,
     validMoves: IMap<string, string[]>,
   },
+  lastMove: string[],
   makeMove: Function,
+  canMove: boolean,
+  flipped: boolean,
+}
+
+// Make sure to bind modal to your appElement (https://reactcommunity.org/react-modal/accessibility/)
+Modal.setAppElement('#root');
+
+function drawModal(isOpen: boolean, modalState: any, onRequestClose: Function, makeMove: Function) {
+  let pieces = [];
+  if (modalState["isWhite"]) {
+    pieces = ["Q", "N", "R", "B"];
+  } else {
+    pieces = ["q", "n", "r", "b"];
+  }
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onRequestClose={onRequestClose}
+      contentLabel="Example Modal"
+      className="Modal"
+      overlayClassName="Overlay"
+    >
+      {pieces.map((p) => <img
+        id={`white-${p}-promotion`}
+        key={`white-${p}-promotion`}
+        width="100"
+        height="100"
+        onClick={() => {
+          makeMove(`${modalState["move"]}${p.toLowerCase()}`);
+          onRequestClose();
+        }}
+        src={getPieceHref(p)} />)}
+    </Modal>
+  );
 }
 
 function Board(props: BoardProps) {
   // FIXME: Will having all the state in one map have performance implications for rendering. i.e. will it still be able to do smart things like see that only arrows has changed.
   const [boardState, setBoardState] = useState(makeDefaultBoardState());
+  const [modalIsOpen, setmodalIsOpen] = useState(false);
+  const [modalState, setModalState] = useState({});
   let gameState = props.gameState;
   let makeMove = props.makeMove;
+  let canMove = props.canMove;
 
   let clickState = new Map<string, string>();
 
+  const openModel = function(modalState: any) {
+    setmodalIsOpen(true);
+    setModalState(modalState);
+  };
+
+  // FIXME: can only capture when dragging
+
   return (
     <div className="board">
+      {drawModal(modalIsOpen, modalState, () => setmodalIsOpen(false), makeMove)}
       <svg
         id="chess-board-svg"
         width="800"
         height="800"
         viewBox="0 0 800 800"
-        onMouseDown={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, handleMouseDown)}
-        onMouseMove={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, handleMouseMove)}
-        onMouseUp={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, handleMouseUp)}
+        onMouseDown={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, canMove, props.flipped, openModel, handleMouseDown)}
+        onMouseMove={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, canMove, props.flipped, openModel, handleMouseMove)}
+        onMouseUp={(e: React.MouseEvent<HTMLElement>) => handleMouseEvent(e, clickState, gameState, boardState, setBoardState, makeMove, canMove, props.flipped, openModel, handleMouseUp)}
         onContextMenu={(e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); }}
       >
-        {drawBoardSquares(boardState)}
-        {drawFileCoordinates()}
-        {drawRankCoordinates()}
-        {drawArrows(boardState.get("arrows"))}
-        {drawMoveHints(boardState.get("moveHints"))}
-        {drawPieces(gameState["pieces"], boardState.get("dragState"))}
+        {drawBoardSquares(boardState.set("lastMove", props.lastMove), props.flipped)}
+        {drawFileCoordinates(props.flipped)}
+        {drawRankCoordinates(props.flipped)}
+        {drawArrows(boardState.get("arrows"), props.flipped)}
+        {drawMoveHints(boardState.get("moveHints"), props.flipped)}
+        {drawPieces(gameState["pieces"], boardState.get("dragState"), props.flipped)}
       </svg>
     </div>
   );
